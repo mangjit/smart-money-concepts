@@ -35,6 +35,12 @@ A confirmation-first TradingView overlay is available at [`scripts/SmartMoneyCon
 
 It includes confirmed swing labels, BOS/CHoCH, fair value gaps, order blocks, equal-high/equal-low liquidity, previous completed higher-timeframe levels, sessions, and alert conditions. It intentionally emits labels and alerts only when the relevant information is known, so it is not a byte-for-byte port of the retrospective Python arrays. Its behavior and the mapping are documented in [`docs/AUDIT.md`](docs/AUDIT.md).
 
+## Smart WebUI and Telegram assistant
+
+The repository now also includes **SMC Desk**, a TradingView-inspired, confirmation-first web research dashboard and Telegram education assistant. It provides public crypto/forex candle visualisation, deterministic `BUY` / `SELL` / `NO_SIGNAL` research classifications, 1.5× ATR stops, ≥2R targets, reasoning/exit plans, optional MongoDB recent-chat context, and server-side LLM adapters for OpenAI, Gemini, Claude, DeepSeek, Qwen, Groq, and local Ollama models.
+
+It does **not** connect to brokers or exchanges, place orders, calculate personal position size, or provide investment advice. See the [WebUI and Telegram deployment guide](docs/WEBUI.md) for setup, data policy, API endpoints, model configuration, webhook security, and limitations.
+
 ## Indicators
 
 ### Fair Value Gap (FVG)

@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="SMC Desk confirmation-first market research dashboard" />
+    <title>SMC Desk — Market Research</title>
+    <link rel="preconnect" href="https://unpkg.com" />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar" aria-label="Market navigation">
+        <a class="brand" href="/" aria-label="SMC Desk home">
+          <span class="brand-mark">S</span>
+          <span><strong>SMC</strong> DESK<small>RESEARCH TERMINAL</small></span>
+        </a>
+
+        <section class="side-section">
+          <p class="eyebrow">WATCHLIST</p>
+          <div id="watchlist" class="watchlist" role="list">
+            <button class="watch-item active" data-symbol="BTCUSDT" data-market="crypto"><span>BTC / USDT</span><b>Crypto</b></button>
+            <button class="watch-item" data-symbol="ETHUSDT" data-market="crypto"><span>ETH / USDT</span><b>Crypto</b></button>
+            <button class="watch-item" data-symbol="SOLUSDT" data-market="crypto"><span>SOL / USDT</span><b>Crypto</b></button>
+            <button class="watch-item" data-symbol="EURUSD" data-market="forex"><span>EUR / USD</span><b>Forex</b></button>
+            <button class="watch-item" data-symbol="GBPUSD" data-market="forex"><span>GBP / USD</span><b>Forex</b></button>
+          </div>
+        </section>
+
+        <section class="side-section guide">
+          <p class="eyebrow">WORKFLOW</p>
+          <ol>
+            <li>Choose market and timeframe</li>
+            <li>Review closed-candle context</li>
+            <li>Paper-test the risk plan</li>
+          </ol>
+        </section>
+
+        <div class="side-footer">
+          <span class="status-dot"></span><span id="system-status">Starting services</span>
+          <p>Educational analysis only.<br />No broker execution.</p>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div class="instrument-title">
+            <span id="market-badge" class="pill crypto">CRYPTO</span>
+            <h1 id="instrument-name">BTCUSDT</h1>
+            <span id="data-source" class="muted">Loading market data…</span>
+          </div>
+          <div class="topbar-actions">
+            <span id="last-updated" class="muted">—</span>
+            <button id="refresh-button" class="icon-button" title="Refresh closed candles" aria-label="Refresh market data">↻</button>
+          </div>
+        </header>
+
+        <section class="controlbar" aria-label="Chart controls">
+          <label>Market
+            <select id="market-select">
+              <option value="crypto">Crypto</option>
+              <option value="forex">Forex</option>
+            </select>
+          </label>
+          <label>Symbol
+            <input id="symbol-input" value="BTCUSDT" maxlength="24" autocomplete="off" spellcheck="false" />
+          </label>
+          <div class="timeframes" role="group" aria-label="Timeframe">
+            <button data-timeframe="1m">1m</button>
+            <button data-timeframe="5m">5m</button>
+            <button data-timeframe="15m">15m</button>
+            <button class="selected" data-timeframe="1h">1h</button>
+            <button data-timeframe="4h">4h</button>
+            <button data-timeframe="1d">1D</button>
+          </div>
+          <button id="analyze-button" class="primary-button">Analyze closed candles</button>
+        </section>
+
+        <div id="error-banner" class="error-banner" role="alert" hidden></div>
+
+        <section class="dashboard-grid">
+          <article class="panel chart-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">PRICE ACTION</p>
+                <h2 id="chart-title">BTCUSDT · 1h</h2>
+              </div>
+              <div class="legend"><span class="legend-dot up"></span> Closed candles only <span class="legend-dot level"></span> Reference levels</div>
+            </div>
+            <div id="chart" class="chart" aria-label="Candlestick chart"></div>
+            <div class="metric-strip" id="metric-strip">
+              <div><span>Close</span><strong id="metric-close">—</strong></div>
+              <div><span>ATR 14</span><strong id="metric-atr">—</strong></div>
+              <div><span>EMA 20 / 50</span><strong id="metric-ema">—</strong></div>
+              <div><span>RSI 14</span><strong id="metric-rsi">—</strong></div>
+              <div><span>Data policy</span><strong>Completed bars</strong></div>
+            </div>
+          </article>
+
+          <aside class="right-column">
+            <article class="panel signal-panel">
+              <div class="panel-heading compact">
+                <div><p class="eyebrow">DISCIPLINED SIGNAL</p><h2>Rule-gated output</h2></div>
+                <span id="signal-status" class="signal-status neutral">WAITING</span>
+              </div>
+              <div class="signal-main">
+                <div><span class="muted">Action</span><strong id="signal-action">—</strong></div>
+                <div><span class="muted">Rule confidence</span><strong id="signal-confidence">—</strong></div>
+              </div>
+              <div class="levels-grid">
+                <div><span>Reference entry</span><strong id="level-entry">—</strong></div>
+                <div><span>Stop loss · 1.5 ATR</span><strong id="level-stop">—</strong></div>
+                <div><span>Take profit · ≥ 2R</span><strong id="level-target">—</strong></div>
+                <div><span>Reward : risk</span><strong id="level-rr">—</strong></div>
+              </div>
+              <p id="signal-notice" class="notice">Signals are calculated from completed public-market candles. They are unavailable until analysis runs.</p>
+            </article>
+
+            <article class="panel reasoning-panel">
+              <div class="panel-heading compact"><div><p class="eyebrow">AUDIT TRAIL</p><h2>Why this output</h2></div><span id="source-chip" class="pill">—</span></div>
+              <ol id="reasoning-list" class="reasoning-list"><li>Run analysis to inspect the deterministic technical checks.</li></ol>
+              <details id="exit-details">
+                <summary>Exit and invalidation plan</summary>
+                <ul id="exit-list"><li>No plan loaded.</li></ul>
+              </details>
+            </article>
+          </aside>
+        </section>
+
+        <section class="panel assistant-panel">
+          <div class="assistant-header">
+            <div><p class="eyebrow">LLM-POWERED EDUCATION ASSISTANT</p><h2>Ask about the current market context</h2></div>
+            <label class="model-picker">Model
+              <select id="model-select" aria-label="Language model"><option value="rule-based">Built-in educational assistant</option></select>
+            </label>
+          </div>
+          <div id="chat-log" class="chat-log" aria-live="polite">
+            <div class="chat-message assistant-message">I use closed-candle data and retain the recent conversation for this browser session. Ask about ATR stops, FVGs, BOS/CHoCH, EMA alignment, or why a setup is blocked.</div>
+          </div>
+          <form id="chat-form" class="chat-form">
+            <input id="chat-input" maxlength="4000" placeholder="Example: Why is the signal blocked, and what would confirm it?" aria-label="Ask the market assistant" required />
+            <button class="primary-button" type="submit">Ask assistant <span>→</span></button>
+          </form>
+          <p id="memory-status" class="fine-print">Recent context: checking configuration…</p>
+        </section>
+      </main>
+    </div>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
