@@ -1,0 +1,57 @@
+# Render Blueprint for SMC Desk.
+# Create the service from this repository, then enter every `sync: false` value
+# in the Render Dashboard. Do not commit real values to this file or to .env.
+services:
+  - type: web
+    name: smc-desk
+    runtime: python
+    region: ohio
+    plan: starter # Use an always-on plan for a reliable Telegram webhook.
+    buildCommand: pip install --upgrade pip && pip install -r requirements-webui.txt
+    startCommand: uvicorn webui.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: APP_ENV
+        value: production
+      - key: REQUEST_TIMEOUT_SECONDS
+        value: "12"
+      - key: MEMORY_TURNS
+        value: "8"
+      - key: OLLAMA_ENABLED
+        value: "false"
+
+      # Optional MongoDB Atlas URI. Without it, memory is process-local.
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DATABASE
+        value: smc_assistant
+      - key: MONGODB_COLLECTION
+        value: conversations
+
+      # Required for Telegram. Configure after the first deploy when the
+      # onrender.com service URL is known.
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: TELEGRAM_ALLOWED_CHAT_IDS
+        sync: false
+      - key: PUBLIC_WEBHOOK_BASE_URL
+        sync: false
+
+      # Optional LLM providers. The service works in built-in educational mode
+      # if none is configured.
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DASHSCOPE_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false

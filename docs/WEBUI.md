@@ -31,6 +31,8 @@ Open `http://localhost:8000`. In an Arena preview or reverse-proxy deployment, u
 
 The built-in assistant works with no model provider configured. Market data still needs its public provider to be reachable. If a provider is unavailable, the dashboard displays an error rather than fabricating candles or a signal.
 
+For Render, use the repository Blueprint and follow the dedicated [`RENDER.md`](RENDER.md) runbook rather than copying the local development command verbatim.
+
 ## Signal policy
 
 A signal is a **paper-trading research classification** for the last completed candle:

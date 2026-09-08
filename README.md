@@ -39,7 +39,7 @@ It includes confirmed swing labels, BOS/CHoCH, fair value gaps, order blocks, eq
 
 The repository now also includes **SMC Desk**, a TradingView-inspired, confirmation-first web research dashboard and Telegram education assistant. It provides public crypto/forex candle visualisation, deterministic `BUY` / `SELL` / `NO_SIGNAL` research classifications, 1.5× ATR stops, ≥2R targets, reasoning/exit plans, optional MongoDB recent-chat context, and server-side LLM adapters for OpenAI, Gemini, Claude, DeepSeek, Qwen, Groq, and local Ollama models.
 
-It does **not** connect to brokers or exchanges, place orders, calculate personal position size, or provide investment advice. See the [WebUI and Telegram deployment guide](docs/WEBUI.md) for setup, data policy, API endpoints, model configuration, webhook security, and limitations.
+It does **not** connect to brokers or exchanges, place orders, calculate personal position size, or provide investment advice. See the [WebUI and Telegram deployment guide](docs/WEBUI.md) for setup, data policy, API endpoints, model configuration, webhook security, and limitations. For a Render Blueprint deployment, follow [`docs/RENDER.md`](docs/RENDER.md).
 
 ## Indicators
 
