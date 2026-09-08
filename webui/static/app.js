@@ -10,6 +10,8 @@
     series: null,
     priceLines: [],
     sessionId: window.crypto?.randomUUID?.() || `web-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    // Intentionally held in memory only; never persist a broker-dashboard secret in browser storage.
+    oandaAccessToken: "",
   };
 
   const $ = (selector) => document.querySelector(selector);
@@ -47,6 +49,20 @@
     memoryStatus: $("#memory-status"),
     systemStatus: $("#system-status"),
     statusDot: $(".status-dot"),
+    oandaMode: $("#oanda-mode"),
+    oandaEnvironment: $("#oanda-environment"),
+    oandaAccessToken: $("#oanda-access-token"),
+    oandaRefresh: $("#oanda-refresh"),
+    accountBalance: $("#account-balance"),
+    accountNav: $("#account-nav"),
+    accountMargin: $("#account-margin"),
+    accountMarginUsed: $("#account-margin-used"),
+    accountTrades: $("#account-trades"),
+    accountUnrealizedPl: $("#account-unrealized-pl"),
+    oandaQuote: $("#oanda-quote"),
+    accountPositions: $("#account-positions"),
+    accountOpenTrades: $("#account-open-trades"),
+    accountPendingOrders: $("#account-pending-orders"),
   };
 
   function showError(message) {
@@ -156,13 +172,67 @@
     elements.metricAtr.textContent = formatPrice(signal.technicals.atr);
     elements.metricEma.textContent = `${formatPrice(signal.technicals.ema_fast)} / ${formatPrice(signal.technicals.ema_slow)}`;
     elements.metricRsi.textContent = signal.technicals.rsi.toFixed(1);
-    elements.sourceChip.textContent = signal.data_source.includes("Binance") ? "BINANCE" : "YAHOO";
+    elements.sourceChip.textContent = signal.data_source.includes("Twelve Data")
+      ? "TWELVE DATA"
+      : signal.data_source.includes("Binance") ? "BINANCE" : "YAHOO";
     listItems(elements.reasoning, signal.reasoning);
     listItems(elements.exits, signal.exit_plan);
     clearPriceLines();
     addLevel(signal.entry_price, "Reference entry", "#5d8dff");
     addLevel(signal.stop_loss, "Stop · 1.5 ATR", "#ff6475");
     addLevel(signal.take_profit, "Target · 2R", "#19c790");
+  }
+
+  function updateOanda(snapshot) {
+    const currency = snapshot.currency || "";
+    elements.oandaMode.className = `signal-status ${snapshot.environment === "practice" ? "buy" : "neutral"}`;
+    elements.oandaMode.textContent = `${snapshot.environment.toUpperCase()} · READ ONLY`;
+    elements.accountBalance.textContent = `${formatPrice(snapshot.balance)} ${currency}`.trim();
+    elements.accountNav.textContent = `${formatPrice(snapshot.nav)} ${currency}`.trim();
+    elements.accountMargin.textContent = `${formatPrice(snapshot.margin_available)} ${currency}`.trim();
+    elements.accountMarginUsed.textContent = `${formatPrice(snapshot.margin_used)} ${currency}`.trim();
+    elements.accountTrades.textContent = `${snapshot.open_trade_count} / ${snapshot.pending_order_count}`;
+    elements.accountUnrealizedPl.textContent = `${formatPrice(snapshot.unrealized_pl)} ${currency}`.trim();
+    if (snapshot.quote) {
+      elements.oandaQuote.textContent = `${snapshot.quote.instrument} · bid ${formatPrice(snapshot.quote.bid)} · ask ${formatPrice(snapshot.quote.ask)} · ${snapshot.quote.timestamp}`;
+    } else if (state.market !== "forex") {
+      elements.oandaQuote.textContent = "Select Forex and a six-letter pair (for example EURUSD) to request OANDA bid / ask context.";
+    } else {
+      elements.oandaQuote.textContent = "No OANDA price is currently available for this instrument.";
+    }
+    const positions = snapshot.positions.map((position) => `${position.instrument}: long ${position.long_units}, short ${position.short_units}, unrealized P/L ${formatPrice(position.unrealized_pl)}`);
+    const openTrades = snapshot.open_trades.map((trade) => `#${trade.id} · ${trade.instrument}: ${trade.current_units} units at ${formatPrice(trade.price)}, unrealized P/L ${formatPrice(trade.unrealized_pl)}`);
+    const pendingOrders = snapshot.pending_orders.map((order) => `#${order.id} · ${order.order_type} ${order.instrument}: ${order.units} units${order.price === null ? "" : ` at ${formatPrice(order.price)}`}`);
+    listItems(elements.accountPositions, positions.length ? positions : ["No open positions."]);
+    listItems(elements.accountOpenTrades, openTrades.length ? openTrades : ["No open trades."]);
+    listItems(elements.accountPendingOrders, pendingOrders.length ? pendingOrders : ["No pending orders."]);
+  }
+
+  async function loadOandaAccount() {
+    const accessToken = elements.oandaAccessToken.value.trim();
+    if (!accessToken) {
+      showError("Enter the separate dashboard access token to view protected OANDA account data. Do not enter your OANDA API token in the browser.");
+      return;
+    }
+    state.oandaAccessToken = accessToken;
+    elements.oandaRefresh.disabled = true;
+    elements.oandaRefresh.textContent = "Loading read-only data…";
+    const environment = elements.oandaEnvironment.value;
+    const query = state.market === "forex" ? `?instrument=${encodeURIComponent(state.symbol)}` : "";
+    try {
+      const snapshot = await requestJson(`/api/oanda/accounts/${environment}${query}`, {
+        headers: { "X-SMC-Access-Token": accessToken },
+      });
+      updateOanda(snapshot);
+      showError("");
+    } catch (error) {
+      elements.oandaMode.className = "signal-status neutral";
+      elements.oandaMode.textContent = "UNAVAILABLE";
+      showError(`OANDA account data unavailable: ${error.message}`);
+    } finally {
+      elements.oandaRefresh.disabled = false;
+      elements.oandaRefresh.textContent = "Load account";
+    }
   }
 
   async function requestJson(url, options = {}) {
@@ -264,6 +334,9 @@
       elements.memoryStatus.textContent = health.memory === "mongo"
         ? "Recent context: MongoDB enabled (30-day server-side retention)."
         : "Recent context: this browser session only (in-memory server fallback).";
+      const oandaReady = health.oanda?.access_protected && (health.oanda?.practice_configured || health.oanda?.live_configured);
+      elements.oandaMode.textContent = oandaReady ? "READY · READ ONLY" : "NOT CONFIGURED";
+      elements.oandaMode.className = `signal-status ${oandaReady ? "buy" : "neutral"}`;
     } catch (error) {
       elements.systemStatus.textContent = "API unavailable";
       elements.statusDot.className = "status-dot error";
@@ -272,6 +345,7 @@
   }
 
   function wireInteractions() {
+    elements.oandaAccessToken.value = state.oandaAccessToken;
     document.querySelectorAll(".timeframes button").forEach((button) => {
       button.addEventListener("click", () => {
         state.timeframe = button.dataset.timeframe;
@@ -293,6 +367,7 @@
     elements.symbol.addEventListener("keydown", (event) => { if (event.key === "Enter") refreshDashboard(); });
     elements.analyze.addEventListener("click", refreshDashboard);
     elements.refresh.addEventListener("click", refreshDashboard);
+    elements.oandaRefresh.addEventListener("click", loadOandaAccount);
     elements.chatForm.addEventListener("submit", sendChat);
   }
 

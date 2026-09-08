@@ -1,6 +1,6 @@
 # Deploy SMC Desk on Render
 
-This guide deploys the single FastAPI web service in this repository. The dashboard, API, and Telegram webhook deliberately run as one service because the browser uses same-origin `/api` requests. There is no broker/exchange execution component.
+This guide deploys the single FastAPI web service in this repository. The dashboard, API, and Telegram webhook deliberately run as one service because the browser uses same-origin `/api` requests. It has no broker/exchange execution component; optional OANDA access is strictly protected, server-side, and read-only.
 
 The repository includes [`render.yaml`](../render.yaml), so Render can create the base service as a Blueprint. It declares a Python web service, installs `requirements-webui.txt`, starts Uvicorn on Render's injected `$PORT`, and checks `GET /api/health`.
 
@@ -60,6 +60,11 @@ Open the service’s **Environment** page. The base Blueprint provides non-secre
 | `MONGODB_URI` | Recommended | **Secret.** Atlas connection string for a dedicated, least-privilege database user. Leave unset only if ephemeral memory is acceptable. |
 | `MONGODB_DATABASE` | Optional | `smc_assistant` (default) |
 | `MONGODB_COLLECTION` | Optional | `conversations` (default) |
+| `TWELVE_DATA_API_KEY` | Recommended | **Secret.** Primary Forex/Crypto candle feed for the chart and deterministic analysis. |
+| `MARKET_CACHE_SECONDS` | Optional | `15` by default; cache lifetime for closed-candle data. |
+| `DASHBOARD_ACCESS_TOKEN` | Required for OANDA view | **Secret.** A distinct high-entropy token required by the browser to request account data; do not reuse an OANDA token. |
+| `OANDA_PRACTICE_API_TOKEN` / `OANDA_PRACTICE_ACCOUNT_ID` | Optional | **Secret.** Enables protected read-only practice/demo summary, positions, trades, orders, and Forex quote context. |
+| `OANDA_LIVE_API_TOKEN` / `OANDA_LIVE_ACCOUNT_ID` | Optional | **Secret.** Enables the same read-only view for live accounts. It grants no dashboard trading functionality. |
 | `OPENAI_API_KEY` | Optional | **Secret.** Enables GPT-5/GPT-4 selection. |
 | `GEMINI_API_KEY` | Optional | **Secret.** Enables Gemini. |
 | `ANTHROPIC_API_KEY` | Optional | **Secret.** Enables Claude Sonnet/Opus. |
@@ -89,10 +94,10 @@ curl -fsS https://YOUR-SERVICE.onrender.com/api/models
 Expected baseline health response:
 
 ```json
-{"status":"ok","memory":"in-memory","telegram_configured":false}
+{"status":"ok","memory":"in-memory","telegram_configured":false,"twelve_data_configured":false,"oanda":{"practice_configured":false,"live_configured":false,"access_protected":false,"read_only":true}}
 ```
 
-Use the dashboard to request a market. The application explicitly drops the newest provider candle and does not invent a signal if Binance or Yahoo Finance is unavailable. Public feed limits, blocked symbols, delayed data, and provider terms are operational concerns; monitor them before relying on the dashboard.
+Use the dashboard to request a market. When `TWELVE_DATA_API_KEY` is set, Twelve Data is the primary chart/analysis feed. The application explicitly drops the newest provider candle and does not invent a signal if the provider is unavailable. Public-feed limits, blocked symbols, delayed data, and provider terms are operational concerns; monitor them before relying on the dashboard. For OANDA variable setup and the separate dashboard token, follow [`docs/OANDA_TWELVE_DATA.md`](OANDA_TWELVE_DATA.md).
 
 ## 4. Enable Telegram safely
 
@@ -179,7 +184,7 @@ For a public production assistant, managed LLM APIs are usually operationally si
 | Health check fails | Open `/api/health` in the service URL and inspect deploy logs. Confirm `healthCheckPath: /api/health` remained in the Blueprint. |
 | WebUI loads but chart errors | Public market provider is unavailable, rate-limited, blocked, or has a symbol/timeframe limitation. The service intentionally returns an error rather than stale/synthetic prices. |
 | Every model reads “configure server key” | Add the corresponding secret in Render’s Environment page, save, and wait for redeploy. Check `/api/models`. |
-| Telegram has no response | Verify public HTTPS URL, bot token, secret, `TELEGRAM_ALLOWED_CHAT_IDS`, then rerun `python scripts/set_telegram_webhook.py` in the Render shell. |
+| Telegram has no response | Verify public HTTPS URL, bot token, secret, `TELEGRAM_ALLOWED_CHAT_IDS`, then rerun `python scripts/set_telegram_webhook.py` from a trusted local terminal; Free Render has no Shell. |
 | Telegram webhook returns 403 | The secret entered in Telegram does not equal `TELEGRAM_WEBHOOK_SECRET`; correct it and re-register. |
 | Conversations disappear after redeploy | Set a working `MONGODB_URI`; in-memory fallback is intentionally non-durable. |
 

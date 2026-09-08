@@ -40,7 +40,7 @@ The repository now provides all three Railway-specific pieces:
    Expected response:
 
    ```json
-   {"status":"ok","memory":"in-memory","telegram_configured":false}
+   {"status":"ok","memory":"in-memory","telegram_configured":false,"twelve_data_configured":false,"oanda":{"practice_configured":false,"live_configured":false,"access_protected":false,"read_only":true}}
    ```
 
 Railway Config as Code supports a `railway.toml`/`railway.json` start command and health-check path, while Railpack recognizes Python projects from a root `main.py` or `requirements.txt`. See Railway’s [Config as Code reference](https://docs.railway.com/config-as-code/reference) and [Railpack Python detection](https://railpack.com/languages/python/).
@@ -63,7 +63,7 @@ At minimum add:
 APP_ENV=production
 ```
 
-Optional variables are listed in [`.env.example`](../.env.example): MongoDB, Telegram, and any LLM-provider keys. Add them in Railway’s Variables panel, never in the repository.
+Optional variables are listed in [`.env.example`](../.env.example): MongoDB, Telegram, LLM-provider keys, Twelve Data, and protected OANDA account access. Add them in Railway’s Variables panel, never in the repository. For Twelve Data and OANDA, also add a separate `DASHBOARD_ACCESS_TOKEN`; it is not an OANDA API token and is required before account data can be displayed. See [`docs/OANDA_TWELVE_DATA.md`](OANDA_TWELVE_DATA.md) for the full read-only setup.
 
 ## Telegram note
 
@@ -85,4 +85,4 @@ python scripts/set_telegram_webhook.py
 
 ## Performance note
 
-This project makes public market-data calls on demand. The initial market analysis can therefore depend on Binance/Yahoo latency. If the Railway service itself is slow before it reaches the dashboard, inspect the Railway deployment/runtime logs and available compute plan; the build fix above addresses the current `Railpack could not determine how to build the app` error.
+This project calls its configured market-data provider on demand. With `TWELVE_DATA_API_KEY`, Twelve Data is the primary chart/analysis feed and the closed-candle cache defaults to 15 seconds. If the Railway service itself is slow before it reaches the dashboard, inspect provider/deployment/runtime logs and the available compute plan; the build fix above addresses the current `Railpack could not determine how to build the app` error.

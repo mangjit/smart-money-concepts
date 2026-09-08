@@ -41,6 +41,13 @@ class Settings:
     cors_origins: FrozenSet[str]
     request_timeout_seconds: int
     memory_turns: int
+    market_cache_seconds: int
+    twelve_data_api_key: str | None
+    dashboard_access_token: str | None
+    oanda_practice_api_token: str | None
+    oanda_practice_account_id: str | None
+    oanda_live_api_token: str | None
+    oanda_live_account_id: str | None
     mongo_uri: str | None
     mongo_database: str
     mongo_collection: str
@@ -79,6 +86,13 @@ class Settings:
             cors_origins=_csv("CORS_ORIGINS"),
             request_timeout_seconds=_integer("REQUEST_TIMEOUT_SECONDS", 12),
             memory_turns=_integer("MEMORY_TURNS", 8, minimum=1),
+            market_cache_seconds=_integer("MARKET_CACHE_SECONDS", 15, minimum=1),
+            twelve_data_api_key=secret("TWELVE_DATA_API_KEY"),
+            dashboard_access_token=secret("DASHBOARD_ACCESS_TOKEN"),
+            oanda_practice_api_token=secret("OANDA_PRACTICE_API_TOKEN"),
+            oanda_practice_account_id=secret("OANDA_PRACTICE_ACCOUNT_ID"),
+            oanda_live_api_token=secret("OANDA_LIVE_API_TOKEN"),
+            oanda_live_account_id=secret("OANDA_LIVE_ACCOUNT_ID"),
             mongo_uri=secret("MONGODB_URI"),
             mongo_database=os.getenv("MONGODB_DATABASE", "smc_assistant"),
             mongo_collection=os.getenv("MONGODB_COLLECTION", "conversations"),

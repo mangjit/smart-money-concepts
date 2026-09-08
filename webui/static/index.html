@@ -124,6 +124,47 @@
                 <ul id="exit-list"><li>No plan loaded.</li></ul>
               </details>
             </article>
+
+            <article class="panel account-panel">
+              <div class="panel-heading compact">
+                <div><p class="eyebrow">OANDA ACCOUNT CONTEXT</p><h2>Read-only practice / live</h2></div>
+                <span id="oanda-mode" class="signal-status neutral">LOCKED</span>
+              </div>
+              <div class="account-connect">
+                <label>Environment
+                  <select id="oanda-environment">
+                    <option value="practice">Practice</option>
+                    <option value="live">Live</option>
+                  </select>
+                </label>
+                <label>Dashboard access token
+                  <input id="oanda-access-token" type="password" autocomplete="off" placeholder="Required to view account" />
+                </label>
+                <button id="oanda-refresh" class="secondary-button" type="button">Load account</button>
+              </div>
+              <div class="account-grid">
+                <div><span>Balance</span><strong id="account-balance">—</strong></div>
+                <div><span>NAV</span><strong id="account-nav">—</strong></div>
+                <div><span>Margin available</span><strong id="account-margin">—</strong></div>
+                <div><span>Margin used</span><strong id="account-margin-used">—</strong></div>
+                <div><span>Open trades / orders</span><strong id="account-trades">—</strong></div>
+                <div><span>Unrealized P/L</span><strong id="account-unrealized-pl">—</strong></div>
+              </div>
+              <div id="oanda-quote" class="quote-strip">OANDA bid / ask context is available for the selected Forex pair after account access is unlocked.</div>
+              <details class="account-details">
+                <summary>Open positions</summary>
+                <ul id="account-positions"><li>No account data loaded.</li></ul>
+              </details>
+              <details class="account-details">
+                <summary>Open trades</summary>
+                <ul id="account-open-trades"><li>No account data loaded.</li></ul>
+              </details>
+              <details class="account-details">
+                <summary>Pending orders</summary>
+                <ul id="account-pending-orders"><li>No account data loaded.</li></ul>
+              </details>
+              <p class="notice">Broker details are protected by a separate dashboard token, fetched only when requested, and never used to place or modify orders.</p>
+            </article>
           </aside>
         </section>
 

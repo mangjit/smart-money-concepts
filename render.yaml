@@ -19,6 +19,8 @@ services:
         value: "12"
       - key: MEMORY_TURNS
         value: "8"
+      - key: MARKET_CACHE_SECONDS
+        value: "15"
       - key: OLLAMA_ENABLED
         value: "false"
 
@@ -29,6 +31,21 @@ services:
         value: smc_assistant
       - key: MONGODB_COLLECTION
         value: conversations
+
+      # Optional Twelve Data chart/analysis feed and protected, GET-only OANDA
+      # account context. DASHBOARD_ACCESS_TOKEN must be a distinct random secret.
+      - key: TWELVE_DATA_API_KEY
+        sync: false
+      - key: DASHBOARD_ACCESS_TOKEN
+        sync: false
+      - key: OANDA_PRACTICE_API_TOKEN
+        sync: false
+      - key: OANDA_PRACTICE_ACCOUNT_ID
+        sync: false
+      - key: OANDA_LIVE_API_TOKEN
+        sync: false
+      - key: OANDA_LIVE_ACCOUNT_ID
+        sync: false
 
       # Required for Telegram. Configure after the first deploy when the
       # onrender.com service URL is known.

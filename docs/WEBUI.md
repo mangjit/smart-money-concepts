@@ -2,13 +2,13 @@
 
 ## What is included
 
-`webui/` is a dark, TradingView-inspired **research dashboard** served by FastAPI. It is intentionally not a TradingView clone and contains no brokerage, exchange trading, account access, or order-execution code.
+`webui/` is a dark, TradingView-inspired **research dashboard** served by FastAPI. It is intentionally not a TradingView clone and contains no brokerage/exchange trading or order-execution code. Its optional OANDA panel is server-side and strictly **read-only** for protected practice/live account visibility.
 
 | Capability | Implementation |
 | --- | --- |
 | Chart workspace | Responsive candlestick chart using TradingView Lightweight Charts in a dark terminal-style UI. Browser calls only same-origin `/api/*` endpoints. |
-| Crypto candles | Server-side Binance public klines; newest in-progress bar is always discarded. |
-| Forex candles | Server-side Yahoo Finance chart data; newest bar is discarded. Yahoo 4-hour data is aggregated from 1-hour candles. |
+| Chart/analysis candles | Server-side Twelve Data time-series feed for Crypto and Forex whenever `TWELVE_DATA_API_KEY` is set; Forex `EURUSD` becomes `EUR/USD`, Crypto `BTCUSDT` becomes `BTC/USDT`, and the newest in-progress bar is always discarded. Without a key, local setups retain explicit-error public Binance/Yahoo fallbacks. |
+| OANDA account context | Optional protected server-side **GET-only** practice/live summary, positions, open trades, pending orders, and selected-Forex bid/ask quote. Requires a separate `DASHBOARD_ACCESS_TOKEN`; OANDA API tokens never reach the browser. |
 | Deterministic signals | `BUY`, `SELL`, or `NO_SIGNAL`, only after EMA(20/50), RSI(14), a fresh **confirmed** swing break, and volume gate align. |
 | Risk invariant | For BUY/SELL the stop is 1.5× ATR(14) from the reference close and target is at least 2.0R. A missing gate returns `NO_SIGNAL` and no price levels. |
 | Signal explanation | Every response includes 11 short factual reasoning sentences, confidence (capped at 82 to avoid false precision), risk notice, and exit/invalidation plan. |
@@ -29,9 +29,9 @@ uvicorn webui.main:app --host 0.0.0.0 --port 8000 --reload
 
 Open `http://localhost:8000`. In an Arena preview or reverse-proxy deployment, use the exposed URL; the frontend uses relative `/api` paths and does not call `localhost`.
 
-The built-in assistant works with no model provider configured. Market data still needs its public provider to be reachable. If a provider is unavailable, the dashboard displays an error rather than fabricating candles or a signal.
+The built-in assistant works with no model provider configured. Market data still needs its configured provider to be reachable. If a provider is unavailable, the dashboard displays an error rather than fabricating candles or a signal.
 
-For Render, use the repository Blueprint and follow the dedicated [`RENDER.md`](RENDER.md) runbook rather than copying the local development command verbatim.
+For Render, use the repository Blueprint and follow the dedicated [`RENDER.md`](RENDER.md) runbook rather than copying the local development command verbatim. For Twelve Data setup and protected OANDA practice/live visibility, follow [`OANDA_TWELVE_DATA.md`](OANDA_TWELVE_DATA.md).
 
 ## Signal policy
 
@@ -42,7 +42,7 @@ A signal is a **paper-trading research classification** for the last completed c
 3. A fresh close above/below the latest confirmed swing is mandatory.
 4. EMA20/EMA50 must align with direction; RSI must be inside the configured momentum band; volume must be at least 0.80× its 20-bar average when volume is available.
 5. Only all-four alignment produces BUY/SELL. All other conditions deliberately produce `NO_SIGNAL`.
-6. Entry is the last closed price reference—not a guarantee of a live fill. Stop and target are deterministic; no broker connection exists.
+6. Entry is the last closed price reference—not a guarantee of a live fill. Stop and target are deterministic and are never submitted to OANDA or another broker.
 
 A percentage “confidence” is a rule-alignment score, **not** an estimated probability of profit. It is intentionally capped and should never be used for position sizing.
 
@@ -91,7 +91,8 @@ The webhook checks Telegram’s `X-Telegram-Bot-Api-Secret-Token`. In any enviro
 ## Deployment security checklist
 
 - Put the app behind HTTPS and a reverse proxy with request-size/rate limits.
-- Keep `.env` out of Git; rotate provider and Telegram keys if exposed.
+- Keep `.env` out of Git; rotate provider, OANDA, and Telegram keys if exposed.
+- Configure `DASHBOARD_ACCESS_TOKEN` separately from OANDA credentials. Never type/send OANDA tokens to the WebUI, Telegram, or chat; use a practice account before enabling a live read-only view.
 - Set `CORS_ORIGINS` only for known, exact separately hosted frontend origins; same-origin mode needs no CORS.
 - Set `TELEGRAM_ALLOWED_CHAT_IDS` for a private assistant. An empty allowlist means every chat that reaches the bot may interact with it.
 - Add authentication before exposing chat or signals as a multi-user public service. This starter intentionally has no user account system.
@@ -107,6 +108,7 @@ The webhook checks Telegram’s `X-Telegram-Bot-Api-Secret-Token`. In any enviro
 | `GET /api/market/candles` | Closed public candles for the UI. |
 | `POST /api/signals/analyze` | Deterministic research signal and explanation. |
 | `POST /api/chat` | Context-aware educational assistant response, optionally with current snapshot. |
+| `GET /api/oanda/accounts/{practice\|live}` | Protected read-only account/position/trade/order snapshot and optional Forex bid/ask context; requires `X-SMC-Access-Token`, never an OANDA token. |
 | `POST /api/telegram/webhook` | Telegram webhook only; not a general public command API. |
 
 ## Important limitations

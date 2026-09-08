@@ -39,7 +39,7 @@ It includes confirmed swing labels, BOS/CHoCH, fair value gaps, order blocks, eq
 
 The repository now also includes **SMC Desk**, a TradingView-inspired, confirmation-first web research dashboard and Telegram education assistant. It provides public crypto/forex candle visualisation, deterministic `BUY` / `SELL` / `NO_SIGNAL` research classifications, 1.5× ATR stops, ≥2R targets, reasoning/exit plans, optional MongoDB recent-chat context, and server-side LLM adapters for OpenAI, Gemini, Claude, DeepSeek, Qwen, Groq, and local Ollama models.
 
-It does **not** connect to brokers or exchanges, place orders, calculate personal position size, or provide investment advice. See the [WebUI and Telegram deployment guide](docs/WEBUI.md) for setup, data policy, API endpoints, model configuration, webhook security, and limitations. For a Render Blueprint deployment, follow [`docs/RENDER.md`](docs/RENDER.md); for Railway/Railpack use [`docs/RAILWAY.md`](docs/RAILWAY.md).
+When configured, its charts use Twelve Data and its protected dashboard can show **read-only** OANDA practice/live account context. It does **not** place, close, change, or automate broker/exchange orders; it also does not calculate personal position size or provide investment advice. See the [WebUI and Telegram deployment guide](docs/WEBUI.md) for setup, data policy, API endpoints, model configuration, webhook security, and limitations. For Twelve Data setup and protected OANDA account visibility, see [`docs/OANDA_TWELVE_DATA.md`](docs/OANDA_TWELVE_DATA.md). For a Render Blueprint deployment, follow [`docs/RENDER.md`](docs/RENDER.md); for Railway/Railpack use [`docs/RAILWAY.md`](docs/RAILWAY.md).
 
 ## Indicators
 

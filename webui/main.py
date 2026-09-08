@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+from secrets import compare_digest
 from typing import Literal
 
-from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query, Request, status
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,7 +17,8 @@ from .config import Settings
 from .llm import LlmConfigurationError, LlmRequestError, ModelRouter
 from .market_data import MarketDataService, MarketDataUnavailable
 from .memory import ConversationMemory, build_memory
-from .models import CandleResponse, ChatRequest, ChatResponse, HealthResponse, Market, ModelStatus, SignalRequest, SignalResponse
+from .models import CandleResponse, ChatRequest, ChatResponse, HealthResponse, Market, ModelStatus, OandaAccountSnapshot, OandaEnvironment, SignalRequest, SignalResponse
+from .oanda import OandaNotConfigured, OandaReadOnlyService, OandaUnavailable
 from .telegram_bot import TelegramService
 
 ROOT = Path(__file__).resolve().parent
@@ -28,6 +30,7 @@ async def lifespan(app: FastAPI):
     settings = Settings.from_environment()
     memory = await build_memory(settings)
     market_data = MarketDataService(settings)
+    oanda = OandaReadOnlyService(settings)
     model_router = ModelRouter(settings)
     assistant = TradingAssistantService(
         data=market_data,
@@ -38,6 +41,7 @@ async def lifespan(app: FastAPI):
     app.state.settings = settings
     app.state.memory = memory
     app.state.market_data = market_data
+    app.state.oanda = oanda
     app.state.models = model_router
     app.state.assistant = assistant
     app.state.telegram = TelegramService(settings, assistant)
@@ -46,6 +50,7 @@ async def lifespan(app: FastAPI):
     finally:
         await app.state.telegram.close()
         await model_router.close()
+        await oanda.close()
         await market_data.close()
         await memory.close()
 
@@ -72,11 +77,12 @@ if _boot_settings.cors_origins:
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
-def _services(request: Request) -> tuple[Settings, ConversationMemory, MarketDataService, ModelRouter, TradingAssistantService, TelegramService]:
+def _services(request: Request) -> tuple[Settings, ConversationMemory, MarketDataService, OandaReadOnlyService, ModelRouter, TradingAssistantService, TelegramService]:
     return (
         request.app.state.settings,
         request.app.state.memory,
         request.app.state.market_data,
+        request.app.state.oanda,
         request.app.state.models,
         request.app.state.assistant,
         request.app.state.telegram,
@@ -95,6 +101,8 @@ async def health(request: Request) -> HealthResponse:
         status="ok",
         memory="mongo" if memory.enabled else "in-memory",
         telegram_configured=telegram.configured,
+        twelve_data_configured=bool(settings.twelve_data_api_key),
+        oanda=request.app.state.oanda.configuration,
     )
 
 
@@ -158,6 +166,40 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
     except LlmRequestError as error:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
+
+
+def _require_oanda_dashboard_access(settings: Settings, provided_token: str | None) -> None:
+    expected_token = settings.dashboard_access_token
+    if not expected_token:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OANDA account dashboard is disabled until DASHBOARD_ACCESS_TOKEN is configured",
+        )
+    if not provided_token or not compare_digest(provided_token, expected_token):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid dashboard access token")
+
+
+@app.get("/api/oanda/accounts/{environment}", response_model=OandaAccountSnapshot)
+async def oanda_account_snapshot(
+    request: Request,
+    response: Response,
+    environment: OandaEnvironment,
+    instrument: str | None = Query(default=None, min_length=6, max_length=12),
+    x_smc_access_token: str | None = Header(default=None, alias="X-SMC-Access-Token"),
+) -> OandaAccountSnapshot:
+    """Return a protected read-only OANDA snapshot. No trade/order mutation routes exist."""
+    settings: Settings = request.app.state.settings
+    oanda: OandaReadOnlyService = request.app.state.oanda
+    _require_oanda_dashboard_access(settings, x_smc_access_token)
+    try:
+        snapshot = await oanda.snapshot(environment=environment, instrument=instrument)
+    except OandaNotConfigured as error:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)) from error
+    except OandaUnavailable as error:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
+    # Never allow balance/position information to be stored by a shared proxy/browser cache.
+    response.headers["Cache-Control"] = "no-store"
+    return snapshot
 
 
 @app.post("/api/telegram/webhook", status_code=status.HTTP_204_NO_CONTENT, include_in_schema=False)

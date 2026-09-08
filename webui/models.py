@@ -13,6 +13,11 @@ class Market(str, Enum):
     FOREX = "forex"
 
 
+class OandaEnvironment(str, Enum):
+    PRACTICE = "practice"
+    LIVE = "live"
+
+
 class SignalAction(str, Enum):
     BUY = "BUY"
     SELL = "SELL"
@@ -118,7 +123,66 @@ class ModelStatus(BaseModel):
     capability: str
 
 
+class OandaQuote(BaseModel):
+    instrument: str
+    timestamp: str
+    bid: float
+    ask: float
+    closeout_bid: float | None = None
+    closeout_ask: float | None = None
+
+
+class OandaPosition(BaseModel):
+    instrument: str
+    long_units: float
+    short_units: float
+    unrealized_pl: float
+
+
+class OandaTrade(BaseModel):
+    id: str
+    instrument: str
+    current_units: float
+    price: float
+    unrealized_pl: float
+
+
+class OandaPendingOrder(BaseModel):
+    id: str
+    instrument: str
+    order_type: str
+    units: float
+    price: float | None = None
+
+
+class OandaAccountSnapshot(BaseModel):
+    environment: OandaEnvironment
+    currency: str
+    balance: float
+    nav: float
+    margin_available: float
+    margin_used: float
+    unrealized_pl: float
+    open_trade_count: int
+    open_position_count: int
+    pending_order_count: int
+    positions: list[OandaPosition]
+    open_trades: list[OandaTrade]
+    pending_orders: list[OandaPendingOrder]
+    quote: OandaQuote | None = None
+    read_only: bool = True
+
+
+class OandaConfiguration(BaseModel):
+    practice_configured: bool
+    live_configured: bool
+    access_protected: bool
+    read_only: bool = True
+
+
 class HealthResponse(BaseModel):
     status: str
     memory: Literal["mongo", "in-memory"]
     telegram_configured: bool
+    twelve_data_configured: bool
+    oanda: OandaConfiguration

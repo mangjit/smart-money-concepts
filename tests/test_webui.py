@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 import math
 import unittest
 
+import httpx
 from starlette.testclient import TestClient
 
 from webui.analytics import build_signal
 from webui.config import Settings
 from webui.llm import ModelRouter
-from webui.market_data import MarketDataService
+from webui.market_data import MarketDataService, MarketDataUnavailable
 from webui.memory import InMemoryConversationMemory, MemoryMessage
-from webui.models import Candle, Market, SignalAction
+from webui.models import Candle, Market, OandaEnvironment, SignalAction
+from webui.oanda import OandaReadOnlyService
 
 
 def bullish_break_fixture() -> list[Candle]:
@@ -103,6 +106,110 @@ class TestMarketDataPolicy(unittest.TestCase):
         self.assertEqual(result.candles[-1].timestamp, candles[-2].timestamp)
 
 
+class TestProviderAdapters(unittest.TestCase):
+    def test_twelve_data_is_primary_normalizes_crypto_and_discards_newest_bar(self) -> None:
+        async def scenario() -> None:
+            requests: list[httpx.Request] = []
+            values = [
+                {
+                    "datetime": (datetime(2024, 1, 1, tzinfo=timezone.utc) + timedelta(hours=index)).strftime("%Y-%m-%d %H:%M:%S"),
+                    "open": str(10 + index),
+                    "high": str(11 + index),
+                    "low": str(9 + index),
+                    "close": str(10.5 + index),
+                    "volume": str(index + 1),
+                }
+                for index in range(81)
+            ]
+
+            def handler(request: httpx.Request) -> httpx.Response:
+                requests.append(request)
+                self.assertEqual(request.url.host, "api.twelvedata.com")
+                self.assertEqual(request.url.params["symbol"], "BTC/USDT")
+                self.assertEqual(request.url.params["interval"], "1h")
+                self.assertEqual(request.url.params["apikey"], "twelve-test-key")
+                return httpx.Response(200, json={"values": values})
+
+            settings = replace(Settings.from_environment(), twelve_data_api_key="twelve-test-key")
+            service = MarketDataService(settings)
+            original_client = service._client
+            service._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            await original_client.aclose()
+            try:
+                result = await service.candles(symbol="BTCUSDT", market=Market.CRYPTO, timeframe="1h", limit=80)
+            finally:
+                await service.close()
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(result.source, "Twelve Data market data")
+            self.assertEqual(len(result.candles), 80)
+            self.assertEqual(result.candles[0].close, 10.5)
+            self.assertEqual(result.candles[-1].close, 89.5)
+
+        asyncio.run(scenario())
+
+    def test_twelve_data_errors_do_not_reflect_the_api_key(self) -> None:
+        async def scenario() -> None:
+            settings = replace(Settings.from_environment(), twelve_data_api_key="twelve-secret-must-not-leak")
+            service = MarketDataService(settings)
+            original_client = service._client
+            service._client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(429)))
+            await original_client.aclose()
+            try:
+                with self.assertRaisesRegex(MarketDataUnavailable, "HTTP 429") as raised:
+                    await service.candles(symbol="EURUSD", market=Market.FOREX, timeframe="1h", limit=80)
+            finally:
+                await service.close()
+            self.assertNotIn("twelve-secret-must-not-leak", str(raised.exception))
+
+        asyncio.run(scenario())
+
+    def test_oanda_snapshot_uses_only_practice_get_endpoints_and_keeps_account_id_out_of_payload(self) -> None:
+        async def scenario() -> None:
+            calls: list[httpx.Request] = []
+
+            def handler(request: httpx.Request) -> httpx.Response:
+                calls.append(request)
+                self.assertEqual(request.method, "GET")
+                self.assertEqual(request.headers["authorization"], "Bearer practice-test-token")
+                path = request.url.path
+                if path.endswith("/summary"):
+                    return httpx.Response(200, json={"account": {"alias": "Demo", "currency": "CAD", "balance": "1000", "NAV": "1010", "marginAvailable": "800", "marginUsed": "210", "unrealizedPL": "10", "openTradeCount": 1, "openPositionCount": 1, "pendingOrderCount": 1}})
+                if path.endswith("/openPositions"):
+                    return httpx.Response(200, json={"positions": [{"instrument": "EUR_USD", "long": {"units": "100"}, "short": {"units": "0"}, "unrealizedPL": "4.5"}]})
+                if path.endswith("/openTrades"):
+                    return httpx.Response(200, json={"trades": [{"id": "42", "instrument": "EUR_USD", "currentUnits": "100", "price": "1.08", "unrealizedPL": "4.5"}]})
+                if path.endswith("/pendingOrders"):
+                    return httpx.Response(200, json={"orders": [{"id": "99", "instrument": "EUR_USD", "type": "LIMIT", "units": "50", "price": "1.07"}]})
+                if path.endswith("/pricing"):
+                    self.assertEqual(request.url.params["instruments"], "EUR_USD")
+                    return httpx.Response(200, json={"prices": [{"instrument": "EUR_USD", "time": "2024-01-01T00:00:00Z", "bids": [{"price": "1.081"}], "asks": [{"price": "1.082"}], "closeoutBid": "1.0809", "closeoutAsk": "1.0821"}]})
+                return httpx.Response(404, json={"errorMessage": "unexpected request"})
+
+            settings = replace(
+                Settings.from_environment(),
+                oanda_practice_api_token="practice-test-token",
+                oanda_practice_account_id="practice-account-id-must-not-leak",
+            )
+            service = OandaReadOnlyService(settings)
+            original_client = service._client
+            service._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            await original_client.aclose()
+            try:
+                snapshot = await service.snapshot(environment=OandaEnvironment.PRACTICE, instrument="EURUSD")
+            finally:
+                await service.close()
+            self.assertEqual(len(calls), 5)
+            self.assertTrue(snapshot.read_only)
+            self.assertEqual(snapshot.balance, 1000)
+            self.assertEqual(snapshot.positions[0].instrument, "EUR_USD")
+            self.assertEqual(snapshot.open_trades[0].id, "42")
+            self.assertEqual(snapshot.pending_orders[0].id, "99")
+            self.assertEqual(snapshot.quote.ask, 1.082)
+            self.assertNotIn("practice-account-id-must-not-leak", snapshot.model_dump_json())
+
+        asyncio.run(scenario())
+
+
 class TestRuleBasedAssistant(unittest.TestCase):
     def test_follow_up_uses_recent_context_without_an_external_model(self) -> None:
         async def scenario() -> None:
@@ -134,6 +241,8 @@ class TestWebUiRoutes(unittest.TestCase):
             health = client.get("/api/health")
             self.assertEqual(health.status_code, 200)
             self.assertEqual(health.json()["memory"], "in-memory")
+            self.assertTrue(health.json()["oanda"]["read_only"])
+            self.assertFalse(health.json()["oanda"]["access_protected"])
             models = client.get("/api/models")
             self.assertEqual(models.status_code, 200)
             model_ids = {item["id"] for item in models.json()}
@@ -150,6 +259,16 @@ class TestWebUiRoutes(unittest.TestCase):
             )
             self.assertEqual(follow_up.status_code, 200)
             self.assertIn("Following your earlier question", follow_up.json()["reply"])
+            # A broker route is not publicly readable even before account credentials are supplied.
+            client.app.state.settings = replace(client.app.state.settings, dashboard_access_token="dashboard-test-token")
+            protected = client.get("/api/oanda/accounts/practice")
+            self.assertEqual(protected.status_code, 403)
+            self.assertIn("access token", protected.json()["detail"].lower())
+            authenticated_but_unconfigured = client.get(
+                "/api/oanda/accounts/practice", headers={"X-SMC-Access-Token": "dashboard-test-token"}
+            )
+            self.assertEqual(authenticated_but_unconfigured.status_code, 503)
+            self.assertIn("not configured", authenticated_but_unconfigured.json()["detail"].lower())
 
 
 class TestConversationMemory(unittest.TestCase):
