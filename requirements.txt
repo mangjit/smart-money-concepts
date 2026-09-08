@@ -1,0 +1,4 @@
+# Railway/Railpack Python detection manifest.
+# Keep runtime dependencies in one canonical file and include them here so Railpack
+# discovers this repository as a Python service.
+-r requirements-webui.txt
