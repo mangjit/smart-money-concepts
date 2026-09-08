@@ -27,6 +27,14 @@ Prepare data to use with smc:
 
 smc expects properly formated ohlc DataFrame, with column names in lowercase: ["open", "high", "low", "close"] and ["volume"] for indicators that expect ohlcv input.
 
+> **Research timing warning:** several current outputs are labelled at a source candle even though they need later candles to be known. Do not use the returned source index as an immediately tradable historical signal. See the [repository audit](docs/AUDIT.md) for timing, data-integrity, and remediation details.
+
+## TradingView Pine Script v6
+
+A confirmation-first TradingView overlay is available at [`scripts/SmartMoneyConcepts_v6.pine`](scripts/SmartMoneyConcepts_v6.pine). Copy its complete contents into the TradingView Pine Editor, save it as a new **indicator**, then add it to a chart.
+
+It includes confirmed swing labels, BOS/CHoCH, fair value gaps, order blocks, equal-high/equal-low liquidity, previous completed higher-timeframe levels, sessions, and alert conditions. It intentionally emits labels and alerts only when the relevant information is known, so it is not a byte-for-byte port of the retrospective Python arrays. Its behavior and the mapping are documented in [`docs/AUDIT.md`](docs/AUDIT.md).
+
 ## Indicators
 
 ### Fair Value Gap (FVG)

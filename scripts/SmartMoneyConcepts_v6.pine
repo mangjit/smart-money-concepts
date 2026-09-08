@@ -1,0 +1,331 @@
+//@version=6
+// Smart Money Concepts v6 — a confirmation-first visual study
+// Repository companion: smartmoneyconcepts Python package
+// Educational use only. This is an indicator, not a trading system or investment advice.
+//
+// Design notes
+// - Swings are confirmed `Swing length` bars after the pivot. Nothing is backdated as a
+//   tradable signal; labels are drawn on the confirmation bar.
+// - Structure breaks, FVGs and alerts are evaluated only on confirmed bar closes.
+// - Higher-timeframe levels use the last completed HTF candle with lookahead_on + [1],
+//   which is the non-repainting request.security pattern.
+// - Zones are removed on their first configured mitigation. This keeps object usage bounded.
+
+indicator("Smart Money Concepts v6 [Confirmation First]", shorttitle = "SMC v6 CF", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inputs
+// ─────────────────────────────────────────────────────────────────────────────
+string groupStructure = "1. Market Structure"
+int swingLength = input.int(5, "Swing length", minval = 1, group = groupStructure, tooltip = "A swing is confirmed this many bars after its pivot. Larger values give fewer, more significant swings.")
+bool showSwingLabels = input.bool(true, "Show confirmed swing labels", group = groupStructure)
+bool showStructure = input.bool(true, "Show BOS / CHoCH", group = groupStructure)
+string breakConfirmation = input.string("Close", "Break confirmation", options = ["Close", "Wick"], group = groupStructure, tooltip = "Close is usually more selective. Wick treats a high/low sweep as a structure break.")
+
+string groupFvg = "2. Fair Value Gaps"
+bool showFvg = input.bool(true, "Show fair value gaps", group = groupFvg)
+bool fvgRequireMiddleDirection = input.bool(true, "Require middle candle direction", group = groupFvg, tooltip = "Matches the repository definition: the middle candle must be bullish for a bullish gap and bearish for a bearish gap.")
+int atrLength = input.int(14, "ATR length", minval = 1, group = groupFvg)
+float minimumFvgAtr = input.float(0.10, "Minimum gap size (ATR)", minval = 0.0, step = 0.05, group = groupFvg, tooltip = "Set to zero to show every three-candle imbalance.")
+
+string groupOb = "3. Order Blocks"
+bool showOrderBlocks = input.bool(true, "Show order blocks after a structure break", group = groupOb)
+int orderBlockLookback = input.int(20, "Search-back candles", minval = 1, maxval = 200, group = groupOb, tooltip = "The last opposing candle inside this window is used as the order-block origin.")
+string orderBlockRange = input.string("Wick", "Order-block range", options = ["Wick", "Body"], group = groupOb)
+string orderBlockMitigation = input.string("Wick", "Mitigation confirmation", options = ["Wick", "Close"], group = groupOb)
+
+string groupLiquidity = "4. Liquidity"
+bool showLiquidity = input.bool(true, "Show equal highs / lows", group = groupLiquidity)
+float equalLevelAtr = input.float(0.10, "Equality tolerance (ATR)", minval = 0.0, step = 0.05, group = groupLiquidity, tooltip = "Two confirmed pivots within this ATR distance form an equal-high or equal-low liquidity level.")
+
+string groupHtf = "5. Higher Timeframe Levels"
+bool showHtfLevels = input.bool(true, "Show previous HTF high / low", group = groupHtf)
+string htf = input.timeframe("D", "Higher timeframe", group = groupHtf, tooltip = "Use a timeframe higher than the chart timeframe. The plotted values are from the previous completed HTF candle.")
+
+string groupSession = "6. Session"
+bool showSession = input.bool(false, "Show session range", group = groupSession)
+string sessionHours = input.session("0800-1100", "Session", group = groupSession)
+string sessionTimeZone = input.string("America/New_York", "Time zone", options = ["Etc/UTC", "America/New_York", "Europe/London", "Asia/Tokyo"], group = groupSession, tooltip = "IANA time zones handle daylight-saving time. Select the market/session you actually trade.")
+
+string groupDisplay = "7. Display and Risk Controls"
+int maxZones = input.int(20, "Maximum active zones per type", minval = 1, maxval = 100, group = groupDisplay, tooltip = "Limits FVG and order-block drawings to stay within TradingView object limits.")
+int maxLiquidityLevels = input.int(20, "Maximum active liquidity levels", minval = 1, maxval = 100, group = groupDisplay)
+bool showDashboard = input.bool(true, "Show status dashboard", group = groupDisplay)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Persistent drawings and state
+// ─────────────────────────────────────────────────────────────────────────────
+var array<box> fvgBoxes = array.new_box(0)
+var array<int> fvgDirections = array.new_int(0) // 1 bullish, -1 bearish
+var array<box> orderBlockBoxes = array.new_box(0)
+var array<int> orderBlockDirections = array.new_int(0) // 1 bullish, -1 bearish
+var array<line> liquidityLines = array.new_line(0)
+var array<int> liquidityDirections = array.new_int(0) // 1 equal highs, -1 equal lows
+var array<float> liquidityLevels = array.new_float(0)
+
+var float lastSwingHigh = na
+var int lastSwingHighBar = na
+var bool lastSwingHighBroken = false
+var float lastSwingLow = na
+var int lastSwingLowBar = na
+var bool lastSwingLowBroken = false
+var int marketBias = 0 // 1 bullish, -1 bearish, 0 unconfirmed
+
+color bullColor = color.rgb(0, 153, 102)
+color bearColor = color.rgb(214, 66, 66)
+color mutedBull = color.new(bullColor, 84)
+color mutedBear = color.new(bearColor, 84)
+color fvgBullColor = color.new(color.teal, 85)
+color fvgBearColor = color.new(color.orange, 85)
+
+float atr = ta.atr(atrLength)
+float pivotHigh = ta.pivothigh(high, swingLength, swingLength)
+float pivotLow = ta.pivotlow(low, swingLength, swingLength)
+// Keep these calculations in global scope so their rolling windows are evaluated on every bar.
+float highestSincePivotCandidate = ta.highest(high, swingLength)
+float lowestSincePivotCandidate = ta.lowest(low, swingLength)
+int pivotBar = bar_index - swingLength
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Confirmed swings and equal-high / equal-low liquidity
+// ─────────────────────────────────────────────────────────────────────────────
+if not na(pivotHigh)
+    if showSwingLabels
+        label.new(x = bar_index, y = pivotHigh, text = "Confirmed SH", xloc = xloc.bar_index, style = label.style_label_down, color = color.new(bearColor, 15), textcolor = color.white, size = size.tiny)
+
+    // A level is drawn at the more conservative (higher) high. It is not created if
+    // price has already taken that level while the second pivot was confirming.
+    bool equalHigh = not na(lastSwingHigh) and math.abs(pivotHigh - lastSwingHigh) <= atr * equalLevelAtr
+    float equalHighLevel = math.max(pivotHigh, lastSwingHigh)
+    bool highUntouchedDuringConfirmation = highestSincePivotCandidate <= equalHighLevel
+    if showLiquidity and equalHigh and highUntouchedDuringConfirmation
+        line newEqualHigh = line.new(x1 = lastSwingHighBar, y1 = equalHighLevel, x2 = pivotBar, y2 = equalHighLevel, xloc = xloc.bar_index, extend = extend.right, color = color.new(bearColor, 25), style = line.style_dotted, width = 2)
+        array.push(liquidityLines, newEqualHigh)
+        array.push(liquidityDirections, 1)
+        array.push(liquidityLevels, equalHighLevel)
+        label.new(x = bar_index, y = equalHighLevel, text = "EQH", xloc = xloc.bar_index, style = label.style_label_down, color = color.new(bearColor, 30), textcolor = color.white, size = size.tiny)
+        if array.size(liquidityLines) > maxLiquidityLevels
+            line.delete(array.shift(liquidityLines))
+            array.shift(liquidityDirections)
+            array.shift(liquidityLevels)
+
+    lastSwingHigh := pivotHigh
+    lastSwingHighBar := pivotBar
+    lastSwingHighBroken := false
+
+if not na(pivotLow)
+    if showSwingLabels
+        label.new(x = bar_index, y = pivotLow, text = "Confirmed SL", xloc = xloc.bar_index, style = label.style_label_up, color = color.new(bullColor, 15), textcolor = color.white, size = size.tiny)
+
+    // A level is drawn at the more conservative (lower) low. See the high-side note above.
+    bool equalLow = not na(lastSwingLow) and math.abs(pivotLow - lastSwingLow) <= atr * equalLevelAtr
+    float equalLowLevel = math.min(pivotLow, lastSwingLow)
+    bool lowUntouchedDuringConfirmation = lowestSincePivotCandidate >= equalLowLevel
+    if showLiquidity and equalLow and lowUntouchedDuringConfirmation
+        line newEqualLow = line.new(x1 = lastSwingLowBar, y1 = equalLowLevel, x2 = pivotBar, y2 = equalLowLevel, xloc = xloc.bar_index, extend = extend.right, color = color.new(bullColor, 25), style = line.style_dotted, width = 2)
+        array.push(liquidityLines, newEqualLow)
+        array.push(liquidityDirections, -1)
+        array.push(liquidityLevels, equalLowLevel)
+        label.new(x = bar_index, y = equalLowLevel, text = "EQL", xloc = xloc.bar_index, style = label.style_label_up, color = color.new(bullColor, 30), textcolor = color.white, size = size.tiny)
+        if array.size(liquidityLines) > maxLiquidityLevels
+            line.delete(array.shift(liquidityLines))
+            array.shift(liquidityDirections)
+            array.shift(liquidityLevels)
+
+    lastSwingLow := pivotLow
+    lastSwingLowBar := pivotBar
+    lastSwingLowBroken := false
+
+// Delete liquidity levels once price has swept them. Looping backwards keeps array indexes valid.
+if array.size(liquidityLines) > 0
+    for zone = array.size(liquidityLines) - 1 to 0
+        int direction = array.get(liquidityDirections, zone)
+        float level = array.get(liquidityLevels, zone)
+        bool swept = direction == 1 ? high > level : low < level
+        if swept
+            line.delete(array.get(liquidityLines, zone))
+            array.remove(liquidityLines, zone)
+            array.remove(liquidityDirections, zone)
+            array.remove(liquidityLevels, zone)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BOS / CHoCH — evaluated once per established swing, only on bar close
+// ─────────────────────────────────────────────────────────────────────────────
+float bullishBreakSource = breakConfirmation == "Close" ? close : high
+float bearishBreakSource = breakConfirmation == "Close" ? close : low
+bool bullishStructureCandidate = barstate.isconfirmed and not na(lastSwingHigh) and not lastSwingHighBroken and bullishBreakSource > lastSwingHigh
+bool bearishStructureCandidate = barstate.isconfirmed and not na(lastSwingLow) and not lastSwingLowBroken and bearishBreakSource < lastSwingLow
+// A single wick can take both sides of a very tight range. It is ambiguous rather
+// than directional, so do not emit competing BOS/CHoCH events on that bar.
+bool bullishStructureBreak = bullishStructureCandidate and not bearishStructureCandidate
+bool bearishStructureBreak = bearishStructureCandidate and not bullishStructureCandidate
+bool bullishChoch = false
+bool bearishChoch = false
+
+if bullishStructureBreak
+    bullishChoch := marketBias == -1
+    string bullishText = bullishChoch ? "Bullish CHoCH" : "Bullish BOS"
+    if showStructure
+        label.new(x = bar_index, y = lastSwingHigh, text = bullishText, xloc = xloc.bar_index, style = label.style_label_up, color = bullColor, textcolor = color.white, size = size.small)
+    lastSwingHighBroken := true
+    marketBias := 1
+
+if bearishStructureBreak
+    bearishChoch := marketBias == 1
+    string bearishText = bearishChoch ? "Bearish CHoCH" : "Bearish BOS"
+    if showStructure
+        label.new(x = bar_index, y = lastSwingLow, text = bearishText, xloc = xloc.bar_index, style = label.style_label_down, color = bearColor, textcolor = color.white, size = size.small)
+    lastSwingLowBroken := true
+    marketBias := -1
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Order blocks — last opposing candle before a confirmed structure break
+// ─────────────────────────────────────────────────────────────────────────────
+if showOrderBlocks and bullishStructureBreak
+    float bullishObTop = na
+    float bullishObBottom = na
+    int bullishObBar = na
+    for offset = 1 to orderBlockLookback
+        if na(bullishObTop) and close[offset] < open[offset]
+            bullishObTop := orderBlockRange == "Body" ? math.max(open[offset], close[offset]) : high[offset]
+            bullishObBottom := orderBlockRange == "Body" ? math.min(open[offset], close[offset]) : low[offset]
+            bullishObBar := bar_index - offset
+    if not na(bullishObTop)
+        box newBullishOb = box.new(left = bullishObBar, top = bullishObTop, right = bar_index + 1, bottom = bullishObBottom, xloc = xloc.bar_index, extend = extend.right, border_color = color.new(bullColor, 25), bgcolor = mutedBull, text = "Bullish OB", text_color = color.new(bullColor, 0), text_size = size.tiny)
+        array.push(orderBlockBoxes, newBullishOb)
+        array.push(orderBlockDirections, 1)
+        if array.size(orderBlockBoxes) > maxZones
+            box.delete(array.shift(orderBlockBoxes))
+            array.shift(orderBlockDirections)
+
+if showOrderBlocks and bearishStructureBreak
+    float bearishObTop = na
+    float bearishObBottom = na
+    int bearishObBar = na
+    for offset = 1 to orderBlockLookback
+        if na(bearishObTop) and close[offset] > open[offset]
+            bearishObTop := orderBlockRange == "Body" ? math.max(open[offset], close[offset]) : high[offset]
+            bearishObBottom := orderBlockRange == "Body" ? math.min(open[offset], close[offset]) : low[offset]
+            bearishObBar := bar_index - offset
+    if not na(bearishObTop)
+        box newBearishOb = box.new(left = bearishObBar, top = bearishObTop, right = bar_index + 1, bottom = bearishObBottom, xloc = xloc.bar_index, extend = extend.right, border_color = color.new(bearColor, 25), bgcolor = mutedBear, text = "Bearish OB", text_color = color.new(bearColor, 0), text_size = size.tiny)
+        array.push(orderBlockBoxes, newBearishOb)
+        array.push(orderBlockDirections, -1)
+        if array.size(orderBlockBoxes) > maxZones
+            box.delete(array.shift(orderBlockBoxes))
+            array.shift(orderBlockDirections)
+
+// Remove order blocks on their first configured mitigation.
+if array.size(orderBlockBoxes) > 0
+    for zone = array.size(orderBlockBoxes) - 1 to 0
+        box activeOb = array.get(orderBlockBoxes, zone)
+        int direction = array.get(orderBlockDirections, zone)
+        float top = box.get_top(activeOb)
+        float bottom = box.get_bottom(activeOb)
+        bool mitigated = direction == 1 ? (orderBlockMitigation == "Close" ? close < bottom : low < bottom) : (orderBlockMitigation == "Close" ? close > top : high > top)
+        if mitigated
+            box.delete(activeOb)
+            array.remove(orderBlockBoxes, zone)
+            array.remove(orderBlockDirections, zone)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fair value gaps — three-candle imbalance, confirmed on the third candle close
+// ─────────────────────────────────────────────────────────────────────────────
+// Evaluate old gaps before creating this bar's gap. Otherwise each new gap would
+// satisfy its own boundary-touch mitigation condition and be removed immediately.
+if array.size(fvgBoxes) > 0
+    for zone = array.size(fvgBoxes) - 1 to 0
+        box activeFvg = array.get(fvgBoxes, zone)
+        int direction = array.get(fvgDirections, zone)
+        float top = box.get_top(activeFvg)
+        float bottom = box.get_bottom(activeFvg)
+        bool mitigated = direction == 1 ? low <= top : high >= bottom
+        if mitigated
+            box.delete(activeFvg)
+            array.remove(fvgBoxes, zone)
+            array.remove(fvgDirections, zone)
+
+bool bullishFvg = barstate.isconfirmed and low > high[2] and (not fvgRequireMiddleDirection or close[1] > open[1]) and (low - high[2] >= atr * minimumFvgAtr)
+bool bearishFvg = barstate.isconfirmed and high < low[2] and (not fvgRequireMiddleDirection or close[1] < open[1]) and (low[2] - high >= atr * minimumFvgAtr)
+
+if showFvg and bullishFvg
+    box newBullishFvg = box.new(left = bar_index - 2, top = low, right = bar_index + 1, bottom = high[2], xloc = xloc.bar_index, extend = extend.right, border_color = color.new(color.teal, 25), bgcolor = fvgBullColor, text = "Bullish FVG", text_color = color.teal, text_size = size.tiny)
+    array.push(fvgBoxes, newBullishFvg)
+    array.push(fvgDirections, 1)
+    if array.size(fvgBoxes) > maxZones
+        box.delete(array.shift(fvgBoxes))
+        array.shift(fvgDirections)
+
+if showFvg and bearishFvg
+    box newBearishFvg = box.new(left = bar_index - 2, top = low[2], right = bar_index + 1, bottom = high, xloc = xloc.bar_index, extend = extend.right, border_color = color.new(color.orange, 25), bgcolor = fvgBearColor, text = "Bearish FVG", text_color = color.orange, text_size = size.tiny)
+    array.push(fvgBoxes, newBearishFvg)
+    array.push(fvgDirections, -1)
+    if array.size(fvgBoxes) > maxZones
+        box.delete(array.shift(fvgBoxes))
+        array.shift(fvgDirections)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Previous completed higher-timeframe high and low
+// `high[1]` / `low[1]` inside the HTF expression make this stable across the active HTF candle.
+// ─────────────────────────────────────────────────────────────────────────────
+float previousHtfHigh = request.security(syminfo.tickerid, htf, high[1], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+float previousHtfLow = request.security(syminfo.tickerid, htf, low[1], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+plot(showHtfLevels ? previousHtfHigh : na, "Previous HTF High", color = color.new(bearColor, 15), linewidth = 1, style = plot.style_linebr)
+plot(showHtfLevels ? previousHtfLow : na, "Previous HTF Low", color = color.new(bullColor, 15), linewidth = 1, style = plot.style_linebr)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Session range — uses a named IANA zone so DST remains correct
+// ─────────────────────────────────────────────────────────────────────────────
+bool inSession = not na(time(timeframe.period, sessionHours, sessionTimeZone))
+// In Pine v6 bool history defaults to false before the first bar, so this also
+// initializes a session correctly when the chart begins inside it.
+bool sessionStarted = inSession and not inSession[1]
+var float sessionHigh = na
+var float sessionLow = na
+if sessionStarted
+    sessionHigh := high
+    sessionLow := low
+else if inSession
+    sessionHigh := math.max(nz(sessionHigh, high), high)
+    sessionLow := math.min(nz(sessionLow, low), low)
+else
+    sessionHigh := na
+    sessionLow := na
+
+bgcolor(showSession and inSession ? color.new(color.blue, 93) : na, title = "Session background")
+plot(showSession ? sessionHigh : na, "Session High", color = color.new(color.blue, 20), linewidth = 1, style = plot.style_linebr)
+plot(showSession ? sessionLow : na, "Session Low", color = color.new(color.blue, 20), linewidth = 1, style = plot.style_linebr)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Current retracement estimate and a compact dashboard
+// The estimate is informational: pivots are only known after swingLength bars.
+// ─────────────────────────────────────────────────────────────────────────────
+float legRange = not na(lastSwingHigh) and not na(lastSwingLow) ? math.abs(lastSwingHigh - lastSwingLow) : na
+float retracement = na
+if marketBias == 1 and not na(legRange) and legRange > 0
+    retracement := math.max(0.0, (lastSwingHigh - low) / legRange * 100.0)
+else if marketBias == -1 and not na(legRange) and legRange > 0
+    retracement := math.max(0.0, (high - lastSwingLow) / legRange * 100.0)
+plot(retracement, "Current Retracement %", display = display.data_window)
+
+var table dashboard = table.new(position.top_right, 2, 3, border_width = 1)
+if barstate.islast
+    if showDashboard
+        string biasText = marketBias == 1 ? "Bullish" : marketBias == -1 ? "Bearish" : "Neutral"
+        color biasColor = marketBias == 1 ? bullColor : marketBias == -1 ? bearColor : color.gray
+        table.cell(dashboard, 0, 0, "SMC status", text_color = color.white, bgcolor = color.rgb(35, 35, 35))
+        table.cell(dashboard, 1, 0, "Confirmed only", text_color = color.silver, bgcolor = color.rgb(35, 35, 35))
+        table.cell(dashboard, 0, 1, "Structure bias", text_color = color.silver)
+        table.cell(dashboard, 1, 1, biasText, text_color = color.white, bgcolor = biasColor)
+        table.cell(dashboard, 0, 2, "Retracement", text_color = color.silver)
+        table.cell(dashboard, 1, 2, na(retracement) ? "n/a" : str.tostring(retracement, "#.0") + "%", text_color = color.white)
+    else
+        table.clear(dashboard, 0, 0, 1, 2)
+
+// Alerts fire only when their event is confirmed at bar close.
+alertcondition(bullishStructureBreak, "SMC bullish structure break", "SMC bullish structure break on {{ticker}} {{interval}} at {{close}}")
+alertcondition(bearishStructureBreak, "SMC bearish structure break", "SMC bearish structure break on {{ticker}} {{interval}} at {{close}}")
+alertcondition(bullishChoch, "SMC bullish CHoCH", "SMC bullish CHoCH on {{ticker}} {{interval}} at {{close}}")
+alertcondition(bearishChoch, "SMC bearish CHoCH", "SMC bearish CHoCH on {{ticker}} {{interval}} at {{close}}")
+alertcondition(bullishFvg, "SMC bullish FVG", "SMC bullish fair value gap on {{ticker}} {{interval}} at {{close}}")
+alertcondition(bearishFvg, "SMC bearish FVG", "SMC bearish fair value gap on {{ticker}} {{interval}} at {{close}}")
