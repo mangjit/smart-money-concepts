@@ -4,7 +4,19 @@ This guide deploys the single FastAPI web service in this repository. The dashbo
 
 The repository includes [`render.yaml`](../render.yaml), so Render can create the base service as a Blueprint. It declares a Python web service, installs `requirements-webui.txt`, starts Uvicorn on Render's injected `$PORT`, and checks `GET /api/health`.
 
-> **Choose an always-on plan for Telegram.** A sleeping or cold-starting service is unsuitable for a time-sensitive webhook. The supplied Blueprint uses `starter`; change the plan only if you understand its sleep, request, and cost behavior.
+> **Free-tier limitation:** the supplied Blueprint uses `free` for testing and demos. Render spins a Free web service down after 15 minutes with no inbound traffic, and a cold start takes about a minute. This makes it unsuitable for time-sensitive/reliable Telegram usage or production availability. Keep Telegram optional while testing, or upgrade the service later without changing application code.
+
+## Free-account tradeoffs
+
+The configuration is compatible with Render Free, but plan for these constraints:
+
+- A Free web service sleeps after 15 idle minutes; the next request starts it again and can take about one minute.
+- A Free service can restart at any time and has an ephemeral filesystem. This app stores no required local state, but **in-memory conversation context is lost** at restart. Configure MongoDB Atlas for durable context.
+- Free web services do not offer a Render Shell/one-off job. Run `scripts/set_telegram_webhook.py` from your own trusted computer after the deploy.
+- Render allocates 750 Free instance hours per workspace per calendar month. If exhausted, Free web services are suspended until the next month.
+- Render may suspend a Free service that initiates unusually high public-internet traffic. This app calls public market/LLM providers and optionally an external database, so monitor its usage and errors.
+
+These are current Render Free-tier constraints, not application errors. See Render’s [Free deployment documentation](https://render.com/docs/free) before relying on the service for anything beyond testing.
 
 ## Before you start
 
@@ -28,8 +40,9 @@ The repository includes [`render.yaml`](../render.yaml), so Render can create th
    uvicorn webui.main:app --host 0.0.0.0 --port $PORT
    ```
 
-5. Select an appropriate region; the supplied `ohio` region is a reasonable low-latency starting point for an Ontario-based operator. Region availability and pricing are Render-account dependent.
-6. Create the Blueprint and wait for the deploy to finish. The health check should call:
+5. Keep the supplied `free` instance plan for a no-cost test deployment. Do not use it as an always-on production service; it sleeps after inactivity and cannot provide the operational reliability expected for a live Telegram assistant.
+6. Select an appropriate region; the supplied `ohio` region is a reasonable low-latency starting point for an Ontario-based operator. Region availability is Render-account dependent.
+7. Create the Blueprint and wait for the deploy to finish. The health check should call:
 
    ```text
    https://YOUR-SERVICE.onrender.com/api/health
@@ -103,13 +116,22 @@ Do this **after** Render has assigned the service’s public HTTPS URL.
 
    `TELEGRAM_ALLOWED_CHAT_IDS` can contain multiple comma-separated numeric IDs. An empty value allows any chat that reaches the bot, so do not leave it empty for a private assistant.
 
-4. Let Render redeploy. Then open the **Shell** tab for the running service and register the webhook:
+4. Let Render redeploy. **Free Render web services do not provide a Shell**, so register the webhook from a trusted local terminal instead. In a local checkout of this same branch, create a local `.env` containing only these deployment values:
+
+   ```text
+   TELEGRAM_BOT_TOKEN=...
+   TELEGRAM_WEBHOOK_SECRET=...
+   PUBLIC_WEBHOOK_BASE_URL=https://YOUR-SERVICE.onrender.com
+   ```
+
+   Then install the runtime requirements and register it:
 
    ```bash
+   python -m pip install -r requirements-webui.txt
    python scripts/set_telegram_webhook.py
    ```
 
-   The script registers `https://YOUR-SERVICE.onrender.com/api/telegram/webhook` and passes the configured secret to Telegram. It never exposes the token in the browser.
+   The script registers `https://YOUR-SERVICE.onrender.com/api/telegram/webhook` and passes the configured secret to Telegram. It never exposes the token in the browser. Delete the local `.env` when finished if you do not need local development.
 
 5. In Telegram, send `/help`, then try:
 
@@ -122,7 +144,7 @@ Do this **after** Render has assigned the service’s public HTTPS URL.
 
 6. Check Render logs for the `POST /api/telegram/webhook` response. A `403` means the Telegram secret header did not match; re-register the webhook after correcting `TELEGRAM_WEBHOOK_SECRET`.
 
-The app rejects unverified webhooks in production. The handler returns quickly and sends the bot reply as a background task; use logs/alerts to monitor delivery failures.
+The app rejects unverified webhooks in production. The handler returns quickly and sends the bot reply as a background task; use logs/alerts to monitor delivery failures. On Free, the first webhook after a 15-minute idle period can incur roughly a one-minute cold start, so Telegram replies may be delayed or retried. Do not treat Free as a reliable bot-hosting tier.
 
 ## 5. Ollama on Render vs. local Ollama
 
@@ -152,6 +174,7 @@ For a public production assistant, managed LLM APIs are usually operationally si
 
 | Symptom | Likely cause / fix |
 | --- | --- |
+| First page or Telegram reply is slow after inactivity | Expected Free behavior: the service sleeps after 15 idle minutes and can take about a minute to start. Reload/wait for a test; upgrade when dependable response time is required. |
 | Render says no port detected | Confirm the exact start command ends with `--port $PORT`, not a hard-coded port. |
 | Health check fails | Open `/api/health` in the service URL and inspect deploy logs. Confirm `healthCheckPath: /api/health` remained in the Blueprint. |
 | WebUI loads but chart errors | Public market provider is unavailable, rate-limited, blocked, or has a symbol/timeframe limitation. The service intentionally returns an error rather than stale/synthetic prices. |

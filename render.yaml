@@ -6,7 +6,7 @@ services:
     name: smc-desk
     runtime: python
     region: ohio
-    plan: starter # Use an always-on plan for a reliable Telegram webhook.
+    plan: free # Suitable for demos/testing; see docs/RENDER.md for Free limitations.
     buildCommand: pip install --upgrade pip && pip install -r requirements-webui.txt
     startCommand: uvicorn webui.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
