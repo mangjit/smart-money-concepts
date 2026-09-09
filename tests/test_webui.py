@@ -168,6 +168,38 @@ class TestProviderAdapters(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_unavailable_twelve_crypto_pair_falls_back_without_changing_symbol(self) -> None:
+        async def scenario() -> None:
+            calls: list[httpx.Request] = []
+            rows = [
+                [str(1_700_000_000 + index * 3_600), "10", "11", "9", "10.5", "10.4", "1", "4"]
+                for index in range(81)
+            ]
+
+            def handler(request: httpx.Request) -> httpx.Response:
+                calls.append(request)
+                if request.url.host == "api.twelvedata.com":
+                    self.assertEqual(request.url.params["symbol"], "BTC/USDT")
+                    return httpx.Response(404)
+                self.assertEqual(request.url.host, "api.kraken.com")
+                self.assertEqual(request.url.params["pair"], "XBTUSDT")
+                return httpx.Response(200, json={"error": [], "result": {"XBTUSDT": rows, "last": rows[-1][0]}})
+
+            settings = replace(Settings.from_environment(), twelve_data_api_key="twelve-test-key")
+            service = MarketDataService(settings)
+            original_client = service._client
+            service._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            await original_client.aclose()
+            try:
+                result = await service.candles(symbol="BTCUSDT", market=Market.CRYPTO, timeframe="1h", limit=80)
+            finally:
+                await service.close()
+            self.assertEqual([request.url.host for request in calls], ["api.twelvedata.com", "api.kraken.com"])
+            self.assertEqual(result.source, "Kraken public spot market data (Twelve Data fallback)")
+            self.assertEqual(len(result.candles), 80)
+
+        asyncio.run(scenario())
+
     def test_crypto_prefers_kraken_before_binance(self) -> None:
         async def scenario() -> None:
             calls: list[httpx.Request] = []

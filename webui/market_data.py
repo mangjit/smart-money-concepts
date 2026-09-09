@@ -103,7 +103,19 @@ class MarketDataService:
             # Data spot pair syntax is intentionally not treated as a futures contract.
             result = await self._bybit_candles(symbol=symbol, timeframe=timeframe, limit=limit, category="linear")
         elif self._settings.twelve_data_api_key:
-            result = await self._twelve_data_candles(symbol=symbol, market=market, timeframe=timeframe, limit=limit)
+            try:
+                result = await self._twelve_data_candles(symbol=symbol, market=market, timeframe=timeframe, limit=limit)
+            except MarketDataUnavailable as twelve_error:
+                # A Twelve Data key may not entitle every crypto exchange/pair. Keep
+                # Twelve Data primary, but try the exact same symbol at the public
+                # alternatives instead of leaving a usable chart blank.
+                result = await self._fallback_after_twelve_data(
+                    symbol=symbol,
+                    market=market,
+                    timeframe=timeframe,
+                    limit=limit,
+                    twelve_error=twelve_error,
+                )
         elif market is Market.CRYPTO:
             result = await self._crypto_spot_candles(symbol=symbol, timeframe=timeframe, limit=limit)
         else:
@@ -164,6 +176,31 @@ class MarketDataService:
         except (KeyError, TypeError, ValueError) as error:
             raise MarketDataUnavailable(f"Twelve Data returned malformed candles for {twelve_symbol}") from error
         return self._closed_result(candles, source="Twelve Data market data", limit=limit)
+
+    async def _fallback_after_twelve_data(
+        self,
+        *,
+        symbol: str,
+        market: Market,
+        timeframe: str,
+        limit: int,
+        twelve_error: MarketDataUnavailable,
+    ) -> MarketDataResult:
+        try:
+            fallback = (
+                await self._crypto_spot_candles(symbol=symbol, timeframe=timeframe, limit=limit)
+                if market is Market.CRYPTO
+                else await self._yahoo_forex_candles(symbol=symbol, timeframe=timeframe, limit=limit)
+            )
+        except MarketDataUnavailable as fallback_error:
+            raise MarketDataUnavailable(
+                f"Twelve Data could not load {symbol}: {twelve_error}. "
+                f"Same-symbol fallback also failed: {fallback_error}"
+            ) from fallback_error
+        return MarketDataResult(
+            candles=fallback.candles,
+            source=f"{fallback.source} (Twelve Data fallback)",
+        )
 
     async def _crypto_spot_candles(self, *, symbol: str, timeframe: str, limit: int) -> MarketDataResult:
         """Use multiple public exchanges only when Twelve Data is not configured.

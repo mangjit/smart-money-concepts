@@ -2,7 +2,7 @@
   "use strict";
 
   const state = {
-    symbol: "BTCUSDT",
+    symbol: "BTCUSD",
     market: "crypto",
     timeframe: "1h",
     signal: null,

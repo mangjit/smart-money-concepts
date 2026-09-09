@@ -65,7 +65,7 @@ The output is intentionally bounded (recent zones/levels and up to 32 markers) s
 ### Symbols and fallback coverage
 
 - **Forex:** enter six-letter pairs such as `EURUSD`, `GBPJPY`, `AUDCAD`, `USDCHF`, `NZDUSD`, or `EURGBP`. With Twelve Data configured, the server requests standard slash notation and supports its available Forex coverage. Without Twelve Data, Yahoo Finance remains the explicit-error fallback.
-- **Crypto spot:** `BTCUSDT`, `ETHUSDT`, `SOLUSDT`, and other provider-supported quote pairs work through Twelve Data when configured. Without it, the server tries Kraken first, then Coinbase, Bybit, and Binance. A regional restriction such as Binance `451` therefore no longer ends the request before the other public sources are attempted.
+- **Crypto spot:** the dashboard defaults to `BTCUSD` because the configured Twelve Data key serves that pair; it also accepts `BTCUSDT`, `ETHUSDT`, `SOLUSDT`, and other provider-supported quote pairs. If Twelve Data cannot serve an exact requested pair, the server tries the same symbol at Kraken, Coinbase, Bybit, and Binance—never a different asset. A regional restriction such as Binance `451` therefore no longer ends the request before the other public sources are attempted.
 - **Crypto futures:** choose **Crypto futures** and use public Bybit linear symbols such as `BTCUSDT` or `ETHUSDT`; `BTCUSDT.P` is normalized to the same contract symbol. Availability is provider/region dependent.
 - **OANDA quote context:** OANDA uses a broader ISO-currency pair normalizer, but the account’s own instrument permissions, region, and OANDA response are authoritative. The panel remains read-only for both practice and live accounts.
 

@@ -95,7 +95,7 @@ class SmcOverlayResponse(BaseModel):
 
 
 class SignalRequest(BaseModel):
-    symbol: str = Field(min_length=2, max_length=24, examples=["BTCUSDT"])
+    symbol: str = Field(min_length=2, max_length=24, examples=["BTCUSD"])
     market: Market = Market.CRYPTO
     timeframe: Literal["1m", "5m", "15m", "1h", "4h", "1d"] = "1h"
     limit: int = Field(default=300, ge=80, le=1000)

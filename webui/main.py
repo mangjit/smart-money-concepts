@@ -116,7 +116,7 @@ async def models(request: Request) -> list[ModelStatus]:
 @app.get("/api/market/candles", response_model=CandleResponse)
 async def candles(
     request: Request,
-    symbol: str = Query("BTCUSDT", min_length=2, max_length=24),
+    symbol: str = Query("BTCUSD", min_length=2, max_length=24),
     market: Market = Query(Market.CRYPTO),
     timeframe: Literal["1m", "5m", "15m", "1h", "4h", "1d"] = Query("1h"),
     limit: int = Query(300, ge=80, le=1000),
@@ -133,7 +133,7 @@ async def candles(
 @app.get("/api/market/overlays", response_model=SmcOverlayResponse)
 async def market_overlays(
     request: Request,
-    symbol: str = Query("BTCUSDT", min_length=2, max_length=24),
+    symbol: str = Query("BTCUSD", min_length=2, max_length=24),
     market: Market = Query(Market.CRYPTO),
     timeframe: Literal["1m", "5m", "15m", "1h", "4h", "1d"] = Query("1h"),
     session: str = Query("London", min_length=3, max_length=32),

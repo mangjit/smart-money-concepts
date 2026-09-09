@@ -19,7 +19,7 @@
         <section class="side-section">
           <p class="eyebrow">WATCHLIST</p>
           <div id="watchlist" class="watchlist" role="list">
-            <button class="watch-item active" data-symbol="BTCUSDT" data-market="crypto"><span>BTC / USDT</span><b>Crypto</b></button>
+            <button class="watch-item active" data-symbol="BTCUSD" data-market="crypto"><span>BTC / USD</span><b>Crypto</b></button>
             <button class="watch-item" data-symbol="ETHUSDT" data-market="crypto"><span>ETH / USDT</span><b>Crypto</b></button>
             <button class="watch-item" data-symbol="SOLUSDT" data-market="crypto"><span>SOL / USDT</span><b>Crypto</b></button>
             <button class="watch-item" data-symbol="BTCUSDT" data-market="futures"><span>BTC / USDT Perp</span><b>Futures</b></button>
@@ -50,7 +50,7 @@
         <header class="topbar">
           <div class="instrument-title">
             <span id="market-badge" class="pill crypto">CRYPTO</span>
-            <h1 id="instrument-name">BTCUSDT</h1>
+            <h1 id="instrument-name">BTCUSD</h1>
             <span id="data-source" class="muted">Loading market data…</span>
           </div>
           <div class="topbar-actions">
@@ -68,8 +68,9 @@
             </select>
           </label>
           <label>Symbol
-            <input id="symbol-input" value="BTCUSDT" list="symbol-suggestions" maxlength="24" autocomplete="off" spellcheck="false" />
+            <input id="symbol-input" value="BTCUSD" list="symbol-suggestions" maxlength="24" autocomplete="off" spellcheck="false" />
             <datalist id="symbol-suggestions">
+              <option value="BTCUSD"></option><option value="ETHUSD"></option><option value="SOLUSD"></option><option value="XRPUSD"></option>
               <option value="BTCUSDT"></option><option value="ETHUSDT"></option><option value="SOLUSDT"></option><option value="XRPUSDT"></option>
               <option value="EURUSD"></option><option value="GBPUSD"></option><option value="USDJPY"></option><option value="USDCHF"></option>
               <option value="AUDUSD"></option><option value="USDCAD"></option><option value="NZDUSD"></option><option value="EURGBP"></option>
@@ -100,7 +101,7 @@
             <div class="panel-heading">
               <div>
                 <p class="eyebrow">PRICE ACTION</p>
-                <h2 id="chart-title">BTCUSDT · 1h</h2>
+                <h2 id="chart-title">BTCUSD · 1h</h2>
               </div>
               <div class="legend"><span class="legend-dot up"></span> Closed candles only <span class="legend-dot level"></span> SMC levels / markers</div>
             </div>
