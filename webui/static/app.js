@@ -9,6 +9,10 @@
     chart: null,
     series: null,
     priceLines: [],
+    overlayPriceLines: [],
+    overlaySeries: [],
+    markerPlugin: null,
+    session: "London",
     sessionId: window.crypto?.randomUUID?.() || `web-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     // Intentionally held in memory only; never persist a broker-dashboard secret in browser storage.
     oandaAccessToken: "",
@@ -19,6 +23,7 @@
     chart: $("#chart"),
     symbol: $("#symbol-input"),
     market: $("#market-select"),
+    session: $("#session-select"),
     source: $("#data-source"),
     marketBadge: $("#market-badge"),
     instrumentName: $("#instrument-name"),
@@ -63,6 +68,10 @@
     accountPositions: $("#account-positions"),
     accountOpenTrades: $("#account-open-trades"),
     accountPendingOrders: $("#account-pending-orders"),
+    overlayStatus: $("#overlay-status"),
+    overlaySummary: $("#overlay-summary"),
+    overlayZones: $("#overlay-zones"),
+    overlayNotice: $("#overlay-notice"),
   };
 
   function showError(message) {
@@ -118,8 +127,110 @@
     state.priceLines = [];
   }
 
+  function clearOverlayAnnotations() {
+    if (!state.series) return;
+    state.overlayPriceLines.forEach((line) => state.series.removePriceLine(line));
+    state.overlayPriceLines = [];
+    state.overlaySeries.forEach((series) => state.chart.removeSeries(series));
+    state.overlaySeries = [];
+    if (state.markerPlugin?.detach) state.markerPlugin.detach();
+    state.markerPlugin = null;
+    if (state.series.setMarkers) state.series.setMarkers([]);
+  }
+
+  function overlayLineStyle(style) {
+    // Lightweight Charts uses 0 solid, 1 dotted, 2 dashed in both supported versions.
+    return style === "solid" ? 0 : style === "dotted" ? 1 : 2;
+  }
+
+  function addZoneSegment(zone) {
+    if (!state.chart || !window.LightweightCharts) return;
+    const bullish = zone.direction === "bullish";
+    const color = zone.active
+      ? bullish ? "#4dd5a1" : "#ff8491"
+      : bullish ? "rgba(77, 213, 161, .45)" : "rgba(255, 132, 145, .45)";
+    const options = {
+      color,
+      lineWidth: zone.active ? 2 : 1,
+      lineStyle: overlayLineStyle("dotted"),
+      lastValueVisible: false,
+      priceLineVisible: false,
+      crosshairMarkerVisible: false,
+    };
+    const createLine = state.chart.addLineSeries
+      ? state.chart.addLineSeries.bind(state.chart)
+      : (lineOptions) => state.chart.addSeries(window.LightweightCharts.LineSeries, lineOptions);
+    [zone.bottom, zone.top].forEach((price) => {
+      const series = createLine(options);
+      series.setData([
+        { time: Math.floor(zone.start_timestamp / 1000), value: price },
+        { time: Math.floor(zone.end_timestamp / 1000), value: price },
+      ]);
+      state.overlaySeries.push(series);
+    });
+  }
+
+  function renderOverlayMarkers(markers) {
+    if (!state.series) return;
+    const chartMarkers = markers.map((marker) => ({
+      time: Math.floor(marker.timestamp / 1000),
+      position: marker.position,
+      color: marker.color,
+      shape: marker.shape,
+      text: marker.text,
+    }));
+    if (state.series.setMarkers) {
+      state.series.setMarkers(chartMarkers);
+    } else if (window.LightweightCharts?.createSeriesMarkers) {
+      state.markerPlugin = window.LightweightCharts.createSeriesMarkers(state.series, chartMarkers);
+    }
+  }
+
+  function updateOverlayPanel(overlays) {
+    elements.overlayStatus.className = "signal-status neutral";
+    elements.overlayStatus.textContent = `${overlays.markers.length} MARKERS`;
+    elements.overlaySummary.replaceChildren();
+    overlays.summary.forEach((item) => {
+      const summary = document.createElement("div");
+      summary.className = `overlay-summary-item ${item.tone}`;
+      const label = document.createElement("span");
+      label.textContent = item.label;
+      const value = document.createElement("strong");
+      value.textContent = item.value;
+      summary.append(label, value);
+      elements.overlaySummary.append(summary);
+    });
+    const zones = overlays.zones.map((zone) => `${zone.label}${zone.active ? " · active" : " · mitigated"}: ${formatPrice(zone.bottom)} – ${formatPrice(zone.top)}`);
+    listItems(elements.overlayZones, zones.length ? zones : ["No recent FVG or order-block zones in the loaded closed-candle window."]);
+    elements.overlayNotice.textContent = overlays.warnings.length
+      ? overlays.warnings.join(" ")
+      : "Markers and levels use closed candles. Swing/FVG tails that require later confirmation are intentionally hidden; historical liquidity and order-block overlays remain research context, not execution instructions.";
+  }
+
+  function renderOverlays(overlays) {
+    if (state.series) {
+      clearOverlayAnnotations();
+      overlays.levels.forEach((level) => {
+        state.overlayPriceLines.push(state.series.createPriceLine({
+          price: level.price,
+          color: level.color,
+          lineWidth: 1,
+          lineStyle: overlayLineStyle(level.style),
+          axisLabelVisible: true,
+          title: level.label,
+        }));
+      });
+      // FVG/OB regions are rendered as time-bounded paired lines. Active zones are
+      // brighter; mitigated zones stay visible in the historical overlay map.
+      overlays.zones.forEach(addZoneSegment);
+      renderOverlayMarkers(overlays.markers);
+    }
+    updateOverlayPanel(overlays);
+  }
+
   function renderChart(candles) {
     if (!state.series) return;
+    clearOverlayAnnotations();
     const data = candles.map((candle) => ({
       time: Math.floor(candle.timestamp / 1000),
       open: candle.open,
@@ -137,11 +248,11 @@
   }
 
   function updateHeader(response) {
-    const isForex = response.market === "forex";
+    const marketClass = response.market === "forex" ? "forex" : response.market === "futures" ? "futures" : "crypto";
     elements.instrumentName.textContent = response.symbol;
     elements.chartTitle.textContent = `${response.symbol} · ${state.timeframe}`;
     elements.marketBadge.textContent = response.market.toUpperCase();
-    elements.marketBadge.className = `pill ${isForex ? "forex" : "crypto"}`;
+    elements.marketBadge.className = `pill ${marketClass}`;
     elements.source.textContent = response.source;
     elements.updated.textContent = `Last closed bar: ${formatTime(response.candles.at(-1).timestamp)}`;
   }
@@ -174,7 +285,13 @@
     elements.metricRsi.textContent = signal.technicals.rsi.toFixed(1);
     elements.sourceChip.textContent = signal.data_source.includes("Twelve Data")
       ? "TWELVE DATA"
-      : signal.data_source.includes("Binance") ? "BINANCE" : "YAHOO";
+      : signal.data_source.includes("Kraken")
+        ? "KRAKEN"
+        : signal.data_source.includes("Coinbase")
+          ? "COINBASE"
+          : signal.data_source.includes("Bybit")
+          ? "BYBIT"
+          : signal.data_source.includes("Binance") ? "BINANCE" : "YAHOO";
     listItems(elements.reasoning, signal.reasoning);
     listItems(elements.exits, signal.exit_plan);
     clearPriceLines();
@@ -257,20 +374,41 @@
     if (!state.symbol) return showError("Enter a market symbol before requesting data.");
     elements.symbol.value = state.symbol;
     showError("");
+    elements.overlayStatus.className = "signal-status neutral";
+    elements.overlayStatus.textContent = "LOADING";
     setBusy(true);
     try {
       const parameters = new URLSearchParams({ symbol: state.symbol, market: state.market, timeframe: state.timeframe, limit: "300" });
       const candleResponse = await requestJson(`/api/market/candles?${parameters}`);
       renderChart(candleResponse.candles);
       updateHeader(candleResponse);
+      const overlayParameters = new URLSearchParams({
+        symbol: state.symbol,
+        market: state.market,
+        timeframe: state.timeframe,
+        session: state.session,
+        limit: "300",
+      });
       const signal = await requestJson("/api/signals/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ symbol: state.symbol, market: state.market, timeframe: state.timeframe, limit: 300 }),
       });
       updateSignal(signal);
+      try {
+        const overlays = await requestJson(`/api/market/overlays?${overlayParameters}`);
+        renderOverlays(overlays);
+      } catch (overlayError) {
+        clearOverlayAnnotations();
+        elements.overlayStatus.className = "signal-status neutral";
+        elements.overlayStatus.textContent = "UNAVAILABLE";
+        elements.overlaySummary.replaceChildren();
+        elements.overlaySummary.textContent = "The candle chart and deterministic signal remain available.";
+        listItems(elements.overlayZones, ["No overlay zones loaded."]);
+        elements.overlayNotice.textContent = `SMC overlay unavailable: ${overlayError.message}`;
+      }
     } catch (error) {
-      showError(`Market data or analysis unavailable: ${error.message}`);
+      showError(`Market data, analysis, or chart overlay unavailable: ${error.message}`);
       elements.source.textContent = "No verified data loaded";
     } finally {
       setBusy(false);
@@ -364,6 +502,10 @@
       });
     });
     elements.market.addEventListener("change", () => { state.market = elements.market.value; });
+    elements.session.addEventListener("change", () => {
+      state.session = elements.session.value;
+      refreshDashboard();
+    });
     elements.symbol.addEventListener("keydown", (event) => { if (event.key === "Enter") refreshDashboard(); });
     elements.analyze.addEventListener("click", refreshDashboard);
     elements.refresh.addEventListener("click", refreshDashboard);

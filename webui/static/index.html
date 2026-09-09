@@ -22,8 +22,12 @@
             <button class="watch-item active" data-symbol="BTCUSDT" data-market="crypto"><span>BTC / USDT</span><b>Crypto</b></button>
             <button class="watch-item" data-symbol="ETHUSDT" data-market="crypto"><span>ETH / USDT</span><b>Crypto</b></button>
             <button class="watch-item" data-symbol="SOLUSDT" data-market="crypto"><span>SOL / USDT</span><b>Crypto</b></button>
+            <button class="watch-item" data-symbol="BTCUSDT" data-market="futures"><span>BTC / USDT Perp</span><b>Futures</b></button>
+            <button class="watch-item" data-symbol="ETHUSDT" data-market="futures"><span>ETH / USDT Perp</span><b>Futures</b></button>
             <button class="watch-item" data-symbol="EURUSD" data-market="forex"><span>EUR / USD</span><b>Forex</b></button>
             <button class="watch-item" data-symbol="GBPUSD" data-market="forex"><span>GBP / USD</span><b>Forex</b></button>
+            <button class="watch-item" data-symbol="USDJPY" data-market="forex"><span>USD / JPY</span><b>Forex</b></button>
+            <button class="watch-item" data-symbol="AUDCAD" data-market="forex"><span>AUD / CAD</span><b>Forex</b></button>
           </div>
         </section>
 
@@ -58,12 +62,25 @@
         <section class="controlbar" aria-label="Chart controls">
           <label>Market
             <select id="market-select">
-              <option value="crypto">Crypto</option>
+              <option value="crypto">Crypto spot</option>
+              <option value="futures">Crypto futures</option>
               <option value="forex">Forex</option>
             </select>
           </label>
           <label>Symbol
-            <input id="symbol-input" value="BTCUSDT" maxlength="24" autocomplete="off" spellcheck="false" />
+            <input id="symbol-input" value="BTCUSDT" list="symbol-suggestions" maxlength="24" autocomplete="off" spellcheck="false" />
+            <datalist id="symbol-suggestions">
+              <option value="BTCUSDT"></option><option value="ETHUSDT"></option><option value="SOLUSDT"></option><option value="XRPUSDT"></option>
+              <option value="EURUSD"></option><option value="GBPUSD"></option><option value="USDJPY"></option><option value="USDCHF"></option>
+              <option value="AUDUSD"></option><option value="USDCAD"></option><option value="NZDUSD"></option><option value="EURGBP"></option>
+              <option value="EURJPY"></option><option value="GBPJPY"></option><option value="AUDCAD"></option><option value="CADJPY"></option>
+            </datalist>
+          </label>
+          <label>Session overlay
+            <select id="session-select">
+              <option value="London">London</option><option value="New York">New York</option><option value="Tokyo">Tokyo</option><option value="Sydney">Sydney</option>
+              <option value="Asian kill zone">Asian kill zone</option><option value="London open kill zone">London open kill zone</option><option value="New York kill zone">New York kill zone</option><option value="london close kill zone">London close kill zone</option>
+            </select>
           </label>
           <div class="timeframes" role="group" aria-label="Timeframe">
             <button data-timeframe="1m">1m</button>
@@ -85,7 +102,7 @@
                 <p class="eyebrow">PRICE ACTION</p>
                 <h2 id="chart-title">BTCUSDT · 1h</h2>
               </div>
-              <div class="legend"><span class="legend-dot up"></span> Closed candles only <span class="legend-dot level"></span> Reference levels</div>
+              <div class="legend"><span class="legend-dot up"></span> Closed candles only <span class="legend-dot level"></span> SMC levels / markers</div>
             </div>
             <div id="chart" class="chart" aria-label="Candlestick chart"></div>
             <div class="metric-strip" id="metric-strip">
@@ -123,6 +140,19 @@
                 <summary>Exit and invalidation plan</summary>
                 <ul id="exit-list"><li>No plan loaded.</li></ul>
               </details>
+            </article>
+
+            <article class="panel overlay-panel">
+              <div class="panel-heading compact">
+                <div><p class="eyebrow">SMC OVERLAY MAP</p><h2>Confirmed chart context</h2></div>
+                <span id="overlay-status" class="signal-status neutral">LOADING</span>
+              </div>
+              <div id="overlay-summary" class="overlay-summary"><span>Loading closed-candle overlays…</span></div>
+              <details class="overlay-details" open>
+                <summary>Recent fair-value gaps and order blocks</summary>
+                <ul id="overlay-zones"><li>Waiting for market data.</li></ul>
+              </details>
+              <p id="overlay-notice" class="notice">Swing labels, BOS/CHoCH, liquidity, previous higher-timeframe levels, retracement state, and the selected UTC session are bounded research overlays.</p>
             </article>
 
             <article class="panel account-panel">

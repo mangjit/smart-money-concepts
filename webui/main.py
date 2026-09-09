@@ -17,8 +17,9 @@ from .config import Settings
 from .llm import LlmConfigurationError, LlmRequestError, ModelRouter
 from .market_data import MarketDataService, MarketDataUnavailable
 from .memory import ConversationMemory, build_memory
-from .models import CandleResponse, ChatRequest, ChatResponse, HealthResponse, Market, ModelStatus, OandaAccountSnapshot, OandaEnvironment, SignalRequest, SignalResponse
+from .models import CandleResponse, ChatRequest, ChatResponse, HealthResponse, Market, ModelStatus, OandaAccountSnapshot, OandaEnvironment, SignalRequest, SignalResponse, SmcOverlayResponse
 from .oanda import OandaNotConfigured, OandaReadOnlyService, OandaUnavailable
+from .overlays import OverlayCalculationError, build_smc_overlays
 from .telegram_bot import TelegramService
 
 ROOT = Path(__file__).resolve().parent
@@ -127,6 +128,34 @@ async def candles(
     except MarketDataUnavailable as error:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
     return CandleResponse(symbol=normalized, market=market, timeframe=timeframe, source=result.source, candles=result.candles)
+
+
+@app.get("/api/market/overlays", response_model=SmcOverlayResponse)
+async def market_overlays(
+    request: Request,
+    symbol: str = Query("BTCUSDT", min_length=2, max_length=24),
+    market: Market = Query(Market.CRYPTO),
+    timeframe: Literal["1m", "5m", "15m", "1h", "4h", "1d"] = Query("1h"),
+    session: str = Query("London", min_length=3, max_length=32),
+    limit: int = Query(300, ge=80, le=1000),
+) -> SmcOverlayResponse:
+    """Return bounded closed-candle SMC chart annotations; this route never trades."""
+    _, _, market_data, *_rest = _services(request)
+    normalized = symbol.strip().upper().replace("/", "").replace("-", "")
+    try:
+        result = await market_data.candles(symbol=normalized, market=market, timeframe=timeframe, limit=limit)
+        return build_smc_overlays(
+            candles=result.candles,
+            symbol=normalized,
+            market=market,
+            timeframe=timeframe,
+            source=result.source,
+            session=session,
+        )
+    except MarketDataUnavailable as error:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
+    except (OverlayCalculationError, ValueError) as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
 
 
 @app.post("/api/signals/analyze", response_model=SignalResponse)

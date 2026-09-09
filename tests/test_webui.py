@@ -14,10 +14,11 @@ from starlette.testclient import TestClient
 from webui.analytics import build_signal
 from webui.config import Settings
 from webui.llm import ModelRouter
-from webui.market_data import MarketDataService, MarketDataUnavailable
+from webui.market_data import MarketDataResult, MarketDataService, MarketDataUnavailable
 from webui.memory import InMemoryConversationMemory, MemoryMessage
 from webui.models import Candle, Market, OandaEnvironment, SignalAction
 from webui.oanda import OandaReadOnlyService
+from webui.overlays import build_smc_overlays
 
 
 def bullish_break_fixture() -> list[Candle]:
@@ -106,6 +107,26 @@ class TestMarketDataPolicy(unittest.TestCase):
         self.assertEqual(result.candles[-1].timestamp, candles[-2].timestamp)
 
 
+class TestSmcOverlayAdapter(unittest.TestCase):
+    def test_closed_candle_overlay_includes_smc_studies_without_unconfirmed_tail_swings(self) -> None:
+        candles = bullish_break_fixture()
+        overlays = build_smc_overlays(
+            candles=candles,
+            symbol="BTCUSDT",
+            market=Market.CRYPTO,
+            timeframe="1h",
+            source="fixture",
+            session="London",
+        )
+        self.assertTrue(any(marker.text in {"SH", "SL"} for marker in overlays.markers))
+        self.assertTrue(any(marker.text.startswith("BOS") for marker in overlays.markers))
+        self.assertTrue({"fvg", "order_block"}.issubset({zone.kind for zone in overlays.zones}))
+        self.assertTrue(all(marker.timestamp <= candles[-6].timestamp or marker.text.startswith(("BOS", "R ")) or marker.text == "London" for marker in overlays.markers))
+        summary_labels = {item.label for item in overlays.summary}
+        self.assertTrue({"FVG", "Order blocks", "Swings", "Retracement", "London"}.issubset(summary_labels))
+        self.assertTrue(any(label.startswith("Prev 1D") for label in summary_labels))
+
+
 class TestProviderAdapters(unittest.TestCase):
     def test_twelve_data_is_primary_normalizes_crypto_and_discards_newest_bar(self) -> None:
         async def scenario() -> None:
@@ -144,6 +165,93 @@ class TestProviderAdapters(unittest.TestCase):
             self.assertEqual(len(result.candles), 80)
             self.assertEqual(result.candles[0].close, 10.5)
             self.assertEqual(result.candles[-1].close, 89.5)
+
+        asyncio.run(scenario())
+
+    def test_crypto_prefers_kraken_before_binance(self) -> None:
+        async def scenario() -> None:
+            calls: list[httpx.Request] = []
+            rows = [
+                [str(1_700_000_000 + index * 3_600), "10", "11", "9", "10.5", "10.4", "1", "4"]
+                for index in range(81)
+            ]
+
+            def handler(request: httpx.Request) -> httpx.Response:
+                calls.append(request)
+                self.assertEqual(request.url.host, "api.kraken.com")
+                self.assertEqual(request.url.params["pair"], "XBTUSDT")
+                self.assertEqual(request.url.params["interval"], "60")
+                return httpx.Response(200, json={"error": [], "result": {"XBTUSDT": rows, "last": rows[-1][0]}})
+
+            service = MarketDataService(Settings.from_environment())
+            original_client = service._client
+            service._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            await original_client.aclose()
+            try:
+                result = await service.candles(symbol="BTCUSDT", market=Market.CRYPTO, timeframe="1h", limit=80)
+            finally:
+                await service.close()
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(result.source, "Kraken public spot market data")
+            self.assertEqual(result.candles[-1].timestamp, int(rows[-2][0]) * 1000)
+
+        asyncio.run(scenario())
+
+    def test_crypto_uses_bybit_when_kraken_is_unavailable(self) -> None:
+        async def scenario() -> None:
+            calls: list[httpx.Request] = []
+            rows = [
+                [str(1_700_000_000_000 + index * 3_600_000), str(10 + index), str(11 + index), str(9 + index), str(10.5 + index), str(index + 1)]
+                for index in range(81)
+            ]
+
+            def handler(request: httpx.Request) -> httpx.Response:
+                calls.append(request)
+                if request.url.host in {"api.kraken.com", "api.exchange.coinbase.com"}:
+                    return httpx.Response(451)
+                self.assertEqual(request.url.host, "api.bybit.com")
+                self.assertEqual(request.url.params["category"], "spot")
+                self.assertEqual(request.url.params["symbol"], "BTCUSDT")
+                self.assertEqual(request.url.params["interval"], "60")
+                return httpx.Response(200, json={"retCode": 0, "result": {"list": list(reversed(rows))}})
+
+            service = MarketDataService(Settings.from_environment())
+            original_client = service._client
+            service._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            await original_client.aclose()
+            try:
+                result = await service.candles(symbol="BTCUSDT", market=Market.CRYPTO, timeframe="1h", limit=80)
+            finally:
+                await service.close()
+            self.assertEqual([request.url.host for request in calls], ["api.kraken.com", "api.exchange.coinbase.com", "api.bybit.com"])
+            self.assertEqual(result.source, "Bybit public spot market data")
+            self.assertEqual(len(result.candles), 80)
+            self.assertEqual(result.candles[-1].timestamp, int(rows[-2][0]))
+
+        asyncio.run(scenario())
+
+    def test_futures_use_the_bybit_linear_contract_feed(self) -> None:
+        async def scenario() -> None:
+            rows = [
+                [str(1_700_000_000_000 + index * 3_600_000), "10", "11", "9", "10.5", "1"]
+                for index in range(81)
+            ]
+
+            def handler(request: httpx.Request) -> httpx.Response:
+                self.assertEqual(request.url.host, "api.bybit.com")
+                self.assertEqual(request.url.params["category"], "linear")
+                return httpx.Response(200, json={"retCode": 0, "result": {"list": list(reversed(rows))}})
+
+            service = MarketDataService(Settings.from_environment())
+            original_client = service._client
+            service._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            await original_client.aclose()
+            try:
+                result = await service.candles(symbol="BTCUSDT.P", market=Market.FUTURES, timeframe="1h", limit=80)
+            finally:
+                await service.close()
+            self.assertEqual(result.source, "Bybit public futures data")
+            self.assertEqual(len(result.candles), 80)
 
         asyncio.run(scenario())
 
@@ -243,6 +351,15 @@ class TestWebUiRoutes(unittest.TestCase):
             self.assertEqual(health.json()["memory"], "in-memory")
             self.assertTrue(health.json()["oanda"]["read_only"])
             self.assertFalse(health.json()["oanda"]["access_protected"])
+            class FixtureMarketData:
+                async def candles(self, **_kwargs):
+                    return MarketDataResult(candles=bullish_break_fixture(), source="fixture")
+
+            client.app.state.market_data = FixtureMarketData()
+            overlays = client.get("/api/market/overlays?symbol=BTCUSDT&market=crypto&timeframe=1h&session=London&limit=100")
+            self.assertEqual(overlays.status_code, 200)
+            self.assertTrue(overlays.json()["markers"])
+            self.assertTrue(overlays.json()["zones"])
             models = client.get("/api/models")
             self.assertEqual(models.status_code, 200)
             model_ids = {item["id"] for item in models.json()}

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 class Market(str, Enum):
     CRYPTO = "crypto"
     FOREX = "forex"
+    FUTURES = "futures"
 
 
 class OandaEnvironment(str, Enum):
@@ -47,6 +48,50 @@ class CandleResponse(BaseModel):
     timeframe: str
     source: str
     candles: list[Candle]
+
+
+class OverlayMarker(BaseModel):
+    timestamp: int = Field(description="Closed-candle timestamp in milliseconds (UTC)")
+    position: Literal["aboveBar", "belowBar", "inBar"]
+    color: str
+    shape: Literal["circle", "square", "arrowUp", "arrowDown"]
+    text: str
+
+
+class OverlayLevel(BaseModel):
+    label: str
+    price: float
+    color: str
+    style: Literal["solid", "dashed", "dotted"] = "dashed"
+
+
+class OverlayZone(BaseModel):
+    label: str
+    kind: Literal["fvg", "order_block"]
+    direction: Literal["bullish", "bearish"]
+    top: float
+    bottom: float
+    start_timestamp: int
+    end_timestamp: int
+    active: bool
+
+
+class OverlaySummary(BaseModel):
+    label: str
+    value: str
+    tone: Literal["positive", "negative", "neutral"] = "neutral"
+
+
+class SmcOverlayResponse(BaseModel):
+    symbol: str
+    market: Market
+    timeframe: str
+    source: str
+    markers: list[OverlayMarker]
+    levels: list[OverlayLevel]
+    zones: list[OverlayZone]
+    summary: list[OverlaySummary]
+    warnings: list[str] = []
 
 
 class SignalRequest(BaseModel):

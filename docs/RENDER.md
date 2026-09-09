@@ -182,7 +182,7 @@ For a public production assistant, managed LLM APIs are usually operationally si
 | First page or Telegram reply is slow after inactivity | Expected Free behavior: the service sleeps after 15 idle minutes and can take about a minute to start. Reload/wait for a test; upgrade when dependable response time is required. |
 | Render says no port detected | Confirm the exact start command ends with `--port $PORT`, not a hard-coded port. |
 | Health check fails | Open `/api/health` in the service URL and inspect deploy logs. Confirm `healthCheckPath: /api/health` remained in the Blueprint. |
-| WebUI loads but chart errors | Public market provider is unavailable, rate-limited, blocked, or has a symbol/timeframe limitation. The service intentionally returns an error rather than stale/synthetic prices. |
+| WebUI loads but chart errors | Add `TWELVE_DATA_API_KEY` first. Without it, Crypto falls back through Kraken, Coinbase, Bybit, and Binance; a regional restriction such as Binance `451` is reported without fabricated prices. Forex uses Yahoo Finance only as the no-key fallback. Check the selected symbol/timeframe and provider terms. |
 | Every model reads “configure server key” | Add the corresponding secret in Render’s Environment page, save, and wait for redeploy. Check `/api/models`. |
 | Telegram has no response | Verify public HTTPS URL, bot token, secret, `TELEGRAM_ALLOWED_CHAT_IDS`, then rerun `python scripts/set_telegram_webhook.py` from a trusted local terminal; Free Render has no Shell. |
 | Telegram webhook returns 403 | The secret entered in Telegram does not equal `TELEGRAM_WEBHOOK_SECRET`; correct it and re-register. |

@@ -36,7 +36,17 @@ class OandaCredentials:
 class OandaReadOnlyService:
     _PRACTICE_BASE_URL = "https://api-fxpractice.oanda.com"
     _LIVE_BASE_URL = "https://api-fxtrade.oanda.com"
-    _FOREX_CURRENCIES = frozenset({"AUD", "CAD", "CHF", "CNH", "CZK", "DKK", "EUR", "GBP", "HKD", "HUF", "JPY", "MXN", "NOK", "NZD", "PLN", "SEK", "SGD", "THB", "TRY", "USD", "ZAR"})
+    # Allow common ISO currency symbols while letting OANDA authoritatively reject a
+    # pair unavailable to a particular account/region. This is deliberately wider than
+    # the original major-pair-only list, but excludes crypto/CFD symbols from pricing.
+    _FOREX_CURRENCIES = frozenset(
+        {
+            "AED", "ARS", "AUD", "BGN", "BHD", "BRL", "CAD", "CHF", "CLP", "CNH", "CNY", "COP", "CZK", "DKK",
+            "EGP", "EUR", "GBP", "HKD", "HRK", "HUF", "IDR", "ILS", "INR", "ISK", "JPY", "KRW", "KWD", "MXN",
+            "MYR", "NOK", "NZD", "PHP", "PLN", "QAR", "RON", "RUB", "SAR", "SEK", "SGD", "THB", "TRY", "TWD",
+            "USD", "ZAR",
+        }
+    )
 
     def __init__(self, settings: Settings):
         self._settings = settings

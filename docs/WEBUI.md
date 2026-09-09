@@ -7,7 +7,9 @@
 | Capability | Implementation |
 | --- | --- |
 | Chart workspace | Responsive candlestick chart using TradingView Lightweight Charts in a dark terminal-style UI. Browser calls only same-origin `/api/*` endpoints. |
-| Chart/analysis candles | Server-side Twelve Data time-series feed for Crypto and Forex whenever `TWELVE_DATA_API_KEY` is set; Forex `EURUSD` becomes `EUR/USD`, Crypto `BTCUSDT` becomes `BTC/USDT`, and the newest in-progress bar is always discarded. Without a key, local setups retain explicit-error public Binance/Yahoo fallbacks. |
+| Chart/analysis candles | Server-side Twelve Data time-series feed for Crypto and Forex whenever `TWELVE_DATA_API_KEY` is set; Forex `EURUSD` becomes `EUR/USD`, Crypto `BTCUSDT` becomes `BTC/USDT`, and the newest in-progress bar is always discarded. Without a key, Crypto tries public Kraken, Coinbase, Bybit, then Binance—each source remains explicitly labeled. |
+| Crypto futures candles | Public Bybit linear-contract candles for `BTCUSDT`, `ETHUSDT`, and other supported perpetual symbols (including an optional `.P` suffix). No order endpoint is added. |
+| SMC chart overlays | Server-side FVG, confirmed swing high/low, BOS, CHoCH, order block, liquidity, previous higher-timeframe high/low, retracement state, and selected UTC-session annotations, plotted as bounded markers/levels plus a recent-zone map. |
 | OANDA account context | Optional protected server-side **GET-only** practice/live summary, positions, open trades, pending orders, and selected-Forex bid/ask quote. Requires a separate `DASHBOARD_ACCESS_TOKEN`; OANDA API tokens never reach the browser. |
 | Deterministic signals | `BUY`, `SELL`, or `NO_SIGNAL`, only after EMA(20/50), RSI(14), a fresh **confirmed** swing break, and volume gate align. |
 | Risk invariant | For BUY/SELL the stop is 1.5× ATR(14) from the reference close and target is at least 2.0R. A missing gate returns `NO_SIGNAL` and no price levels. |
@@ -45,6 +47,29 @@ A signal is a **paper-trading research classification** for the last completed c
 6. Entry is the last closed price reference—not a guarantee of a live fill. Stop and target are deterministic and are never submitted to OANDA or another broker.
 
 A percentage “confidence” is a rule-alignment score, **not** an estimated probability of profit. It is intentionally capped and should never be used for position sizing.
+
+## SMC chart overlays and market coverage
+
+After the closed-candle chart loads, the dashboard calls `GET /api/market/overlays` using the same symbol, timeframe, and candle window. The overlay map displays these repository calculations:
+
+- **FVG:** recent bullish/bearish fair-value-gap boundaries; zones are shown as time-bounded paired chart lines and all recent zones appear in the map.
+- **Swing highs/lows:** `SH` / `SL` markers using a five-candle confirmation side. Endpoint swings that need future candles are intentionally hidden.
+- **BOS and CHoCH:** broken structural levels and directional markers, calculated from the confirmed swing frame.
+- **Order blocks and liquidity:** recent order-block boundaries plus `BSL` / `SSL` liquidity markings. These are descriptive historical calculations, not guaranteed live levels.
+- **Previous high/low:** prior `1H`, `1D`, or `1W` levels selected from the chart timeframe.
+- **Retracement:** current/deepest percentage and an `R` marker.
+- **Session:** the selected UTC session or kill-zone high/low and a session-start marker.
+
+The output is intentionally bounded (recent zones/levels and up to 32 markers) so it remains readable. All overlays are derived from bars already treated as closed by the market-data service; no overlay submits an order. Some SMC definitions require later bars for historical confirmation, so the dashboard labels them as research context rather than immediate signals.
+
+### Symbols and fallback coverage
+
+- **Forex:** enter six-letter pairs such as `EURUSD`, `GBPJPY`, `AUDCAD`, `USDCHF`, `NZDUSD`, or `EURGBP`. With Twelve Data configured, the server requests standard slash notation and supports its available Forex coverage. Without Twelve Data, Yahoo Finance remains the explicit-error fallback.
+- **Crypto spot:** `BTCUSDT`, `ETHUSDT`, `SOLUSDT`, and other provider-supported quote pairs work through Twelve Data when configured. Without it, the server tries Kraken first, then Coinbase, Bybit, and Binance. A regional restriction such as Binance `451` therefore no longer ends the request before the other public sources are attempted.
+- **Crypto futures:** choose **Crypto futures** and use public Bybit linear symbols such as `BTCUSDT` or `ETHUSDT`; `BTCUSDT.P` is normalized to the same contract symbol. Availability is provider/region dependent.
+- **OANDA quote context:** OANDA uses a broader ISO-currency pair normalizer, but the account’s own instrument permissions, region, and OANDA response are authoritative. The panel remains read-only for both practice and live accounts.
+
+No public provider fallback substitutes a different asset (for example, it will not silently turn `BTCUSDT` into `BTCUSD`) or makes up candle data. Configure `TWELVE_DATA_API_KEY` for the most consistent cross-market chart source.
 
 ## LLM configuration
 
@@ -105,7 +130,8 @@ The webhook checks Telegram’s `X-Telegram-Bot-Api-Secret-Token`. In any enviro
 | --- | --- |
 | `GET /api/health` | Memory and Telegram configuration status (no secrets). |
 | `GET /api/models` | Supported model names and whether each is configured. |
-| `GET /api/market/candles` | Closed public candles for the UI. |
+| `GET /api/market/candles` | Closed provider candles for the UI; Twelve Data is primary when configured, with labeled public-provider fallbacks. |
+| `GET /api/market/overlays` | Bounded closed-candle SMC markers, price levels, zones, retracement/session summary; accepts `session`. |
 | `POST /api/signals/analyze` | Deterministic research signal and explanation. |
 | `POST /api/chat` | Context-aware educational assistant response, optionally with current snapshot. |
 | `GET /api/oanda/accounts/{practice\|live}` | Protected read-only account/position/trade/order snapshot and optional Forex bid/ask context; requires `X-SMC-Access-Token`, never an OANDA token. |

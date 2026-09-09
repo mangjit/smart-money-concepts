@@ -95,10 +95,10 @@ class TelegramService:
         await self.send_message(chat_id, f"Educational assistant model set to {selected.label} for this bot session. Signal levels remain deterministic.")
 
     async def _signal_command(self, chat_id: int, text: str) -> None:
-        # /signal BTCUSDT 1h crypto  OR  /signal EURUSD 4h forex
+        # /signal BTCUSDT 1h crypto  OR  /signal EURUSD 4h forex  OR  /signal BTCUSDT 1h futures
         parts = text.split()
         if len(parts) < 2:
-            await self.send_message(chat_id, "Usage: /signal BTCUSDT 1h crypto\nExample: /signal EURUSD 4h forex")
+            await self.send_message(chat_id, "Usage: /signal BTCUSDT 1h crypto\nForex: /signal EURUSD 4h forex\nFutures: /signal BTCUSDT 1h futures")
             return
         symbol = parts[1].upper().replace("/", "").replace("-", "")
         timeframe = parts[2].lower() if len(parts) >= 3 else "1h"
@@ -106,8 +106,8 @@ class TelegramService:
         if timeframe not in {"1m", "5m", "15m", "1h", "4h", "1d"}:
             await self.send_message(chat_id, "Timeframe must be one of 1m, 5m, 15m, 1h, 4h, or 1d.")
             return
-        if market_value not in {"crypto", "forex"}:
-            await self.send_message(chat_id, "Market must be crypto or forex.")
+        if market_value not in {"crypto", "forex", "futures"}:
+            await self.send_message(chat_id, "Market must be crypto, futures, or forex.")
             return
         try:
             signal = await self._assistant.analyze(
@@ -157,6 +157,7 @@ class TelegramService:
             "SMC Desk is a paper-trading research assistant, not a broker.\n\n"
             "• /signal BTCUSDT 1h crypto\n"
             "• /signal EURUSD 4h forex\n"
+            "• /signal BTCUSDT 1h futures\n"
             "• /models, then /model <id> to switch a configured educational LLM\n"
             "• Ask about ATR, FVGs, BOS/CHoCH, risk process, or the current no-signal gate.\n\n"
             "Signals use closed candles, 1.5×ATR stops, and a minimum 2R target when all deterministic rules align."

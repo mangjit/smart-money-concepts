@@ -83,7 +83,7 @@ OANDA provides account-summary and open-position endpoints under `/v3/accounts/{
 3. In the WebUI, choose **Practice** first.
 4. Enter the **dashboard access token**—not the OANDA token—then click **Load account**.
 5. Switch to **Live** only when you intentionally want a read-only view of its balances/positions. The panel marks it `LIVE · READ ONLY`.
-6. When viewing a six-letter Forex pair such as `EURUSD`, the same request also includes an OANDA bid/ask context quote.
+6. When viewing a supported six-letter Forex pair such as `EURUSD`, `GBPJPY`, `AUDCAD`, or `USDCHF`, the same request also includes an OANDA bid/ask context quote. The server accepts a broad set of ISO currency codes, while OANDA/account-region availability remains authoritative.
 
 The protected endpoint is:
 
