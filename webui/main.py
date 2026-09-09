@@ -90,9 +90,24 @@ def _services(request: Request) -> tuple[Settings, ConversationMemory, MarketDat
     )
 
 
+@app.middleware("http")
+async def prevent_stale_dashboard_assets(request: Request, call_next):
+    """Make deploy-time UI changes visible instead of relying on browser heuristics.
+
+    The API is safe to cache server-side where appropriate, but an old HTML/JS bundle
+    cannot request new overlay endpoints. Static dashboard files are small, so force
+    revalidation across Render's proxy and browser caches after every deployment.
+    """
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
 @app.get("/", include_in_schema=False)
 async def dashboard() -> FileResponse:
-    return FileResponse(STATIC / "index.html")
+    return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"})
 
 
 @app.get("/api/health", response_model=HealthResponse)

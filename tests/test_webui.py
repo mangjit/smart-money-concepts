@@ -378,6 +378,8 @@ class TestWebUiRoutes(unittest.TestCase):
             dashboard = client.get("/")
             self.assertEqual(dashboard.status_code, 200)
             self.assertIn("SMC Desk", dashboard.text)
+            self.assertIn("no-store", dashboard.headers["cache-control"])
+            self.assertIn("smc-overlays-20260909", dashboard.text)
             health = client.get("/api/health")
             self.assertEqual(health.status_code, 200)
             self.assertEqual(health.json()["memory"], "in-memory")
